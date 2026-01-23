@@ -1,7 +1,7 @@
 # 🚀 Финальный деплой — что сделать СЕЙЧАС
 
-**Время:** ~10 минут
-**Статус:** 98% готов, осталось 3 шага
+**Время:** ~5 минут
+**Статус:** 99% готов, осталось 2 шага
 
 ---
 
@@ -11,24 +11,14 @@
 - Railway проект создан: https://railway.com/project/acf22966-f165-4e4d-a9ba-ce2efef63129
 - Код загружен на Railway
 - Telegram Bot создан: @training_bot (токен готов)
-- Groq API интегрирован (бесплатный AI)
+- Groq API ключ получен ✅
+- Все переменные готовы
 
 ---
 
-## 📋 Что сделать (3 шага)
+## 📋 Что сделать (2 шага)
 
-### Шаг 1: Получить Groq API ключ (2 минуты)
-
-1. Открой: https://console.groq.com
-2. Войди через Google (bootchq@gmail.com)
-3. API Keys → Create API Key → `training-bot`
-4. Скопируй ключ (начинается с `gsk_...`)
-
-**Детали:** [docs/groq_api_setup.md](docs/groq_api_setup.md)
-
----
-
-### Шаг 2: Настроить Railway переменные (3 минуты)
+### Шаг 1: Настроить Railway переменные (3 минуты)
 
 1. Открой: https://railway.com/project/acf22966-f165-4e4d-a9ba-ce2efef63129
 2. Выбери сервис (должен быть один)
@@ -39,7 +29,7 @@
 TELEGRAM_BOT_TOKEN=8219028377:AAHDhNNoVGfPWA4XJL1PNjD4ZcDJJkuWxyI
 GARMIN_EMAIL=bootchq@gmail.com
 GARMIN_PASSWORD=Aa1424617556
-GROQ_API_KEY=<<ВСТАВЬ_КЛЮЧ_ИЗ_ШАГА_1>>
+GROQ_API_KEY=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
 DATABASE_PATH=/data/training_bot.db
 TZ=Europe/Moscow
 LOG_LEVEL=INFO
@@ -49,7 +39,7 @@ LOG_LEVEL=INFO
 
 ---
 
-### Шаг 3: Добавить Volume для БД (1 минута)
+### Шаг 2: Добавить Volume для БД (1 минута)
 
 1. В том же Railway проекте нажми **+ New**
 2. Выбери **Volume**
@@ -115,9 +105,10 @@ Railway → Deployments → последний деплой → Logs
 | Railway проект | ✅ |
 | Код загружен | ✅ |
 | Telegram Bot токен | ✅ |
-| Groq API ключ | ⏳ Нужно получить |
-| Railway переменные | ⏳ Нужно настроить |
-| Railway Volume | ⏳ Нужно создать |
+| Groq API ключ | ✅ Получен |
+| .env файл создан | ✅ |
+| Railway переменные | ⏳ 2 минуты |
+| Railway Volume | ⏳ 1 минута |
 | Google Calendar | ⏸️ Опционально |
 | UptimeRobot | ⏸️ Опционально |
 

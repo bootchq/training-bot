@@ -32,8 +32,8 @@ TELEGRAM_BOT_TOKEN=8219028377:AAHDhNNoVGfPWA4XJL1PNjD4ZcDJJkuWxyI
 GARMIN_EMAIL=bootchq@gmail.com
 GARMIN_PASSWORD=Aa1424617556
 
-# Groq AI (бесплатный - получить на https://console.groq.com)
-GROQ_API_KEY=<<ПОЛУЧИ_НА_GROQ_CONSOLE>>
+# Groq AI (бесплатный - актуальный ключ)
+GROQ_API_KEY=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
 
 # Database
 DATABASE_PATH=/data/training_bot.db
