@@ -116,7 +116,9 @@ class Database:
         logger.info("Таблицы созданы")
 
         # Применяем миграции для существующих таблиц
+        logger.info("🔄 Проверка необходимости миграции БД...")
         self._migrate_existing_tables()
+        logger.info("✅ Проверка миграции завершена")
 
     def _migrate_existing_tables(self):
         """Миграция существующих таблиц (добавление новых полей)"""
