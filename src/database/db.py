@@ -17,6 +17,8 @@ class User(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     telegram_id = Column(Integer, unique=True, nullable=False, index=True)
+    garmin_email = Column(String, nullable=True)
+    garmin_password = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -355,6 +357,49 @@ class Database:
 
             logger.info(f"Сохранён опрос самочувствия для пользователя {user_id} на {survey_date}")
             return True
+
+    def save_garmin_credentials(self, telegram_id: int, email: str, password: str) -> bool:
+        """
+        Сохранить учетные данные Garmin для пользователя
+
+        Args:
+            telegram_id: ID пользователя в Telegram
+            email: Email от Garmin
+            password: Пароль от Garmin
+
+        Returns:
+            True если успешно
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(telegram_id=telegram_id).first()
+
+            if not user:
+                logger.warning(f"Пользователь {telegram_id} не найден")
+                return False
+
+            user.garmin_email = email
+            user.garmin_password = password
+
+            logger.info(f"Сохранены учетные данные Garmin для пользователя {telegram_id}")
+            return True
+
+    def get_user_garmin_credentials(self, user_id: int) -> Optional[tuple]:
+        """
+        Получить учетные данные Garmin пользователя
+
+        Args:
+            user_id: ID пользователя (внутренний)
+
+        Returns:
+            Tuple (email, password) или None
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+
+            if not user or not user.garmin_email:
+                return None
+
+            return (user.garmin_email, user.garmin_password)
 
 
 # Глобальный экземпляр БД

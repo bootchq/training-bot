@@ -1,6 +1,9 @@
 """Telegram бот"""
-from telegram import Update
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application, CommandHandler, CallbackQueryHandler,
+    ContextTypes, ConversationHandler, MessageHandler, filters
+)
 
 from ..utils.config import Config
 from ..utils.logger import logger
@@ -10,6 +13,9 @@ from ..integrations.calendar_sync import calendar_sync
 from ..core.scheduler import scheduler
 from ..core.stats_calculator import StatsCalculator
 from ..core.wellness_survey import WellnessSurvey
+
+# Состояния для ConversationHandler
+GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
 
 
 class TrainingBot:
@@ -25,19 +31,55 @@ class TrainingBot:
 
     def _setup_handlers(self):
         """Настройка обработчиков команд"""
+        # ConversationHandler для регистрации Garmin
+        garmin_registration_handler = ConversationHandler(
+            entry_points=[CallbackQueryHandler(self.ask_garmin_email, pattern="^register_garmin$")],
+            states={
+                GARMIN_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_garmin_email)],
+                GARMIN_PASSWORD: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_garmin_password)]
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel_registration)]
+        )
+
         self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("sync", self.sync))
         self.app.add_handler(CommandHandler("stats", self.stats))
         self.app.add_handler(CommandHandler("plan", self.plan))
         self.app.add_handler(CommandHandler("calendar", self.calendar))
+        self.app.add_handler(garmin_registration_handler)
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
         logger.info("Обработчики команд настроены")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
+
+        # Проверяем есть ли учетные данные Garmin
+        credentials = db.get_user_garmin_credentials(user.id)
+
+        if not credentials:
+            # Новый пользователь - запрашиваем регистрацию
+            keyboard = [
+                [InlineKeyboardButton("✅ Есть аккаунт Garmin", callback_data="register_garmin")],
+                [InlineKeyboardButton("❌ Нет аккаунта - зарегистрироваться", callback_data="no_garmin_account")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            welcome_text = """
+🏃 Привет! Я твой бот-тренер по бегу.
+
+Помогу подготовиться к забегам и адаптировать тренировки под твой уровень.
+
+Для работы мне нужен доступ к твоим тренировкам в Garmin Connect.
+
+У тебя есть аккаунт Garmin?
+"""
+            await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+            logger.info(f"Новый пользователь {telegram_id}, запрос регистрации Garmin")
+            return
 
         # Запускаем scheduler при первом старте
         if not self.scheduler_started:
@@ -47,19 +89,7 @@ class TrainingBot:
             logger.info(f"Scheduler запущен для пользователя {telegram_id}")
 
         welcome_text = """
-🏃 Привет! Я твой бот-тренер по бегу.
-
-Помогу подготовиться к забегам:
-• Тарки-Тау 50км (15-16 февраля)
-• Марафон 42км (март)
-• DWT 65км (апрель)
-
-Что я умею:
-✅ Синхронизация с Garmin (00:00 автоматически)
-✅ Адаптивный план тренировок
-✅ Опросы самочувствия после тренировок
-✅ Google Calendar интеграция
-✅ Статистика и прогресс
+🏃 С возвращением!
 
 Команды:
 /sync — Синхронизация с Garmin (вручную)
@@ -299,6 +329,135 @@ class TrainingBot:
             await query.edit_message_text("Опрос не найден или уже завершён")
 
         logger.info(f"Пользователь {telegram_id} ответил на опрос: {query.data}")
+
+    async def ask_garmin_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начало регистрации - запрос email Garmin"""
+        query = update.callback_query
+        await query.answer()
+
+        await query.edit_message_text(
+            "📧 Введи свой email от Garmin Connect:\n\n"
+            "Например: myemail@gmail.com\n\n"
+            "Отправь /cancel для отмены"
+        )
+        return GARMIN_EMAIL
+
+    async def receive_garmin_email(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Получение email и запрос пароля"""
+        email = update.message.text.strip()
+
+        # Базовая проверка email
+        if '@' not in email or '.' not in email:
+            await update.message.reply_text(
+                "❌ Неверный формат email. Попробуй ещё раз.\n\n"
+                "Отправь /cancel для отмены"
+            )
+            return GARMIN_EMAIL
+
+        # Сохраняем email в контексте
+        context.user_data['garmin_email'] = email
+
+        await update.message.reply_text(
+            "🔐 Теперь введи пароль от Garmin Connect:\n\n"
+            "⚠️ Пароль будет сохранён зашифрованным для автоматической синхронизации\n\n"
+            "Отправь /cancel для отмены"
+        )
+        return GARMIN_PASSWORD
+
+    async def receive_garmin_password(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Получение пароля и завершение регистрации"""
+        password = update.message.text.strip()
+        email = context.user_data.get('garmin_email')
+
+        if not email:
+            await update.message.reply_text("❌ Ошибка: email не найден. Начни заново с /start")
+            return ConversationHandler.END
+
+        telegram_id = update.effective_user.id
+
+        # Сохраняем учетные данные
+        success = db.save_garmin_credentials(telegram_id, email, password)
+
+        if not success:
+            await update.message.reply_text(
+                "❌ Ошибка сохранения данных. Попробуй позже.\n\n"
+                "Используй /start для повторной попытки"
+            )
+            return ConversationHandler.END
+
+        # Удаляем сообщение с паролем для безопасности
+        try:
+            await update.message.delete()
+        except:
+            pass
+
+        await update.message.reply_text(
+            "✅ Регистрация завершена!\n\n"
+            "Теперь я могу автоматически синхронизировать твои тренировки с Garmin.\n\n"
+            "Синхронизирую последние тренировки..."
+        )
+
+        # Запускаем первую синхронизацию
+        user = db.get_or_create_user(telegram_id)
+        try:
+            # Синхронизируем последние 7 дней
+            from datetime import date, timedelta
+            count = 0
+            for i in range(7):
+                sync_date = date.today() - timedelta(days=i)
+                count += garmin_sync.sync_date_for_user(user.id, sync_date)
+
+            if count > 0:
+                await update.message.reply_text(f"✅ Загружено {count} тренировок за последнюю неделю")
+            else:
+                await update.message.reply_text("ℹ️ Тренировок за последнюю неделю не найдено")
+
+        except Exception as e:
+            logger.error(f"Ошибка первой синхронизации: {e}")
+            await update.message.reply_text(
+                "⚠️ Не удалось синхронизировать тренировки.\n\n"
+                "Проверь правильность логина/пароля и попробуй /sync"
+            )
+
+        # Запускаем scheduler
+        if not self.scheduler_started:
+            scheduler.telegram_bot = self.app.bot
+            scheduler.start(user.id, telegram_id)
+            self.scheduler_started = True
+
+        await update.message.reply_text(
+            "🎉 Всё готово!\n\n"
+            "Команды:\n"
+            "/sync — Синхронизация с Garmin (вручную)\n"
+            "/stats — Статистика за неделю/месяц\n"
+            "/plan — План на неделю\n"
+            "/help — Помощь"
+        )
+
+        logger.info(f"Пользователь {telegram_id} завершил регистрацию Garmin")
+        return ConversationHandler.END
+
+    async def cancel_registration(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Отмена регистрации"""
+        await update.message.reply_text(
+            "❌ Регистрация отменена.\n\n"
+            "Используй /start когда будешь готов"
+        )
+        return ConversationHandler.END
+
+    async def handle_no_garmin_account(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка кнопки 'Нет аккаунта Garmin'"""
+        query = update.callback_query
+        await query.answer()
+
+        await query.edit_message_text(
+            "📱 Для использования бота нужен аккаунт Garmin Connect\n\n"
+            "Зарегистрироваться можно здесь:\n"
+            "https://connect.garmin.com/signup\n\n"
+            "После регистрации возвращайся и нажми /start"
+        )
+
+        logger.info(f"Пользователь {update.effective_user.id} запросил регистрацию Garmin")
 
     def run(self):
         """Запуск бота"""

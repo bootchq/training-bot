@@ -16,17 +16,29 @@ class GarminSync:
         self.email = Config.GARMIN_EMAIL
         self.password = Config.GARMIN_PASSWORD
         self.client = None
+        self.current_user_id = None
 
-    def login(self) -> bool:
+    def login(self, email: str = None, password: str = None) -> bool:
         """
         Авторизация в Garmin Connect
+
+        Args:
+            email: Email от Garmin (если None - используется из Config)
+            password: Пароль от Garmin (если None - используется из Config)
 
         Returns:
             True если успешно, False если ошибка
         """
+        email = email or self.email
+        password = password or self.password
+
+        if not email or not password:
+            logger.error("❌ Не указаны учетные данные Garmin")
+            return False
+
         try:
-            logger.info("Авторизация в Garmin Connect...")
-            self.client = Garmin(self.email, self.password)
+            logger.info(f"Авторизация в Garmin Connect ({email})...")
+            self.client = Garmin(email, password)
             self.client.login()
             logger.info("✅ Авторизация успешна")
             return True
@@ -220,6 +232,34 @@ class GarminSync:
                 logger.info(f"Сохранена тренировка: {target_date}, {parsed['distance_km']}км")
 
         return saved_count
+
+    def sync_date_for_user(self, user_id: int, target_date: date) -> int:
+        """
+        Синхронизация тренировок для конкретного пользователя
+
+        Args:
+            user_id: ID пользователя (внутренний)
+            target_date: Дата для синхронизации
+
+        Returns:
+            Количество сохранённых тренировок
+        """
+        # Получаем учетные данные пользователя
+        credentials = db.get_user_garmin_credentials(user_id)
+
+        if not credentials:
+            logger.warning(f"Нет учетных данных Garmin для пользователя {user_id}")
+            return 0
+
+        email, password = credentials
+
+        # Авторизуемся с учетными данными пользователя
+        if not self.login(email, password):
+            logger.error(f"Не удалось авторизоваться в Garmin для пользователя {user_id}")
+            return 0
+
+        # Синхронизируем
+        return self.sync_date(user_id, target_date)
 
 
 # Глобальный экземпляр
