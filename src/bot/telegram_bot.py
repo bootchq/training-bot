@@ -16,6 +16,7 @@ from ..core.wellness_survey import WellnessSurvey
 
 # Состояния для ConversationHandler
 GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
+PLAN_DAYS, PLAN_TIME = range(2, 4)
 
 
 class TrainingBot:
@@ -41,6 +42,16 @@ class TrainingBot:
             fallbacks=[CommandHandler("cancel", self.cancel_registration)]
         )
 
+        # ConversationHandler для создания плана
+        plan_creation_handler = ConversationHandler(
+            entry_points=[CallbackQueryHandler(self.ask_plan_days, pattern="^plan_")]],
+            states={
+                PLAN_DAYS: [CallbackQueryHandler(self.receive_plan_days, pattern="^days_")],
+                PLAN_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_plan_time)]
+            },
+            fallbacks=[CommandHandler("cancel", self.cancel_plan_creation)]
+        )
+
         self.app.add_handler(CommandHandler("start", self.start))
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("sync", self.sync))
@@ -48,9 +59,9 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("plan", self.plan))
         self.app.add_handler(CommandHandler("calendar", self.calendar))
         self.app.add_handler(garmin_registration_handler)
+        self.app.add_handler(plan_creation_handler)
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
-        self.app.add_handler(CallbackQueryHandler(self.handle_plan_generation, pattern="^plan_"))
         logger.info("Обработчики команд настроены")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -223,36 +234,40 @@ class TrainingBot:
             )
             return
 
-        # Форматирование плана
-        plan_text = f"📅 План тренировок ({start_of_week.strftime('%d.%m')} - {(start_of_week + timedelta(days=6)).strftime('%d.%m')})\n\n"
+        # Отправляем заголовок
+        await update.message.reply_text(
+            f"📅 **План тренировок на неделю**\n"
+            f"({start_of_week.strftime('%d.%m')} - {(start_of_week + timedelta(days=6)).strftime('%d.%m')})\n\n"
+            f"Всего тренировок: {len(plans)}"
+        )
 
+        # Отправляем каждую тренировку отдельным сообщением
         days_ru = {
-            0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"
+            0: "Понедельник", 1: "Вторник", 2: "Среда", 3: "Четверг",
+            4: "Пятница", 5: "Суббота", 6: "Воскресенье"
         }
 
         for plan in plans:
             day_name = days_ru.get(plan.date.weekday(), "")
-            plan_text += f"**{day_name} {plan.date.strftime('%d.%m')}** — {plan.type.upper()}\n"
 
-            if plan.duration_min:
-                plan_text += f"   ⏱ {plan.duration_min} мин"
+            # Формируем детальное сообщение для тренировки
+            plan_text = f"**{day_name} {plan.date.strftime('%d.%m')}**\n\n"
 
-            if plan.distance_km:
-                plan_text += f" / {plan.distance_km:.0f} км"
-
-            if plan.target_zone:
-                plan_text += f" / {plan.target_zone}"
-
-            plan_text += "\n"
-
-            # Добавляем описание (первые 100 символов)
+            # Добавляем описание (если есть детальное)
             if plan.description:
-                desc_short = plan.description[:100].replace('\n', ' ')
-                plan_text += f"   {desc_short}...\n"
+                plan_text += f"{plan.description}\n"
+            else:
+                # Fallback для старых тренировок без детального описания
+                plan_text += f"**{plan.type.capitalize()}**\n"
+                if plan.duration_min:
+                    plan_text += f"- Время: {plan.duration_min} мин\n"
+                if plan.distance_km:
+                    plan_text += f"- Расстояние: ~{plan.distance_km:.1f} км\n"
+                if plan.target_zone:
+                    plan_text += f"- Зоны: {plan.target_zone}\n"
 
-            plan_text += "\n"
+            await update.message.reply_text(plan_text, parse_mode='Markdown')
 
-        await update.message.reply_text(plan_text, parse_mode='Markdown')
         logger.info(f"Пользователь {telegram_id} запросил план на неделю")
 
     async def calendar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -491,18 +506,14 @@ class TrainingBot:
 
         logger.info(f"Пользователь {update.effective_user.id} запросил регистрацию Garmin")
 
-    async def handle_plan_generation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка генерации плана тренировок"""
+    async def ask_plan_days(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начало создания плана - выбор дней недели"""
         from datetime import date
-        from ..core.plan_generator import PlanGenerator
 
         query = update.callback_query
         await query.answer()
 
-        telegram_id = update.effective_user.id
-        user = db.get_or_create_user(telegram_id)
-
-        # Определяем цель по callback_data
+        # Определяем цель
         goal_mapping = {
             'plan_tarki': {'name': 'Тарки-Тау 50км', 'distance': 50, 'date': date(2026, 2, 15)},
             'plan_marathon': {'name': 'Марафон 42км', 'distance': 42, 'date': date(2026, 3, 15)},
@@ -513,25 +524,159 @@ class TrainingBot:
 
         if not goal_data:
             await query.edit_message_text("❌ Неизвестная цель")
-            return
+            return ConversationHandler.END
+
+        # Сохраняем цель в контекст
+        context.user_data['goal_data'] = goal_data
+        context.user_data['selected_days'] = []
+
+        # Кнопки для выбора дней недели
+        keyboard = [
+            [
+                InlineKeyboardButton("Пн", callback_data="days_1"),
+                InlineKeyboardButton("Вт", callback_data="days_2"),
+                InlineKeyboardButton("Ср", callback_data="days_3")
+            ],
+            [
+                InlineKeyboardButton("Чт", callback_data="days_4"),
+                InlineKeyboardButton("Пт", callback_data="days_5"),
+                InlineKeyboardButton("Сб", callback_data="days_6"),
+                InlineKeyboardButton("Вс", callback_data="days_7")
+            ],
+            [InlineKeyboardButton("✅ Готово", callback_data="days_done")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
-            f"⏳ Генерирую план подготовки к {goal_data['name']}...\n\n"
-            "Это займёт несколько секунд"
+            f"🎯 Цель: {goal_data['name']}\n\n"
+            "📅 Выбери дни недели, в которые ты можешь тренироваться:\n"
+            "(Нажми на дни, затем нажми ✅ Готово)\n\n"
+            "Выбрано: —",
+            reply_markup=reply_markup
+        )
+
+        return PLAN_DAYS
+
+    async def receive_plan_days(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Получение выбранных дней недели"""
+        query = update.callback_query
+        await query.answer()
+
+        if query.data == "days_done":
+            selected_days = context.user_data.get('selected_days', [])
+
+            if len(selected_days) < 2:
+                await query.answer("❌ Выбери минимум 2 дня для тренировок", show_alert=True)
+                return PLAN_DAYS
+
+            goal_data = context.user_data.get('goal_data')
+
+            await query.edit_message_text(
+                f"🎯 Цель: {goal_data['name']}\n"
+                f"📅 Дни тренировок: {len(selected_days)} дней\n\n"
+                "⏱ Сколько минут готов заниматься на тренировке?\n\n"
+                "Напиши число (например: 60, 90, 120)\n\n"
+                "Или отправь /cancel для отмены"
+            )
+
+            return PLAN_TIME
+
+        # Обработка выбора дня
+        day_num = int(query.data.replace('days_', ''))
+        selected_days = context.user_data.get('selected_days', [])
+
+        if day_num in selected_days:
+            selected_days.remove(day_num)
+        else:
+            selected_days.append(day_num)
+
+        context.user_data['selected_days'] = selected_days
+
+        # Обновляем текст с выбранными днями
+        days_names = {1: "Пн", 2: "Вт", 3: "Ср", 4: "Чт", 5: "Пт", 6: "Сб", 7: "Вс"}
+        selected_names = ", ".join([days_names[d] for d in sorted(selected_days)])
+
+        goal_data = context.user_data.get('goal_data')
+
+        # Кнопки для выбора дней (помечаем выбранные)
+        keyboard = [
+            [
+                InlineKeyboardButton(f"{'✅ ' if 1 in selected_days else ''}Пн", callback_data="days_1"),
+                InlineKeyboardButton(f"{'✅ ' if 2 in selected_days else ''}Вт", callback_data="days_2"),
+                InlineKeyboardButton(f"{'✅ ' if 3 in selected_days else ''}Ср", callback_data="days_3")
+            ],
+            [
+                InlineKeyboardButton(f"{'✅ ' if 4 in selected_days else ''}Чт", callback_data="days_4"),
+                InlineKeyboardButton(f"{'✅ ' if 5 in selected_days else ''}Пт", callback_data="days_5"),
+                InlineKeyboardButton(f"{'✅ ' if 6 in selected_days else ''}Сб", callback_data="days_6"),
+                InlineKeyboardButton(f"{'✅ ' if 7 in selected_days else ''}Вс", callback_data="days_7")
+            ],
+            [InlineKeyboardButton("✅ Готово", callback_data="days_done")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"🎯 Цель: {goal_data['name']}\n\n"
+            "📅 Выбери дни недели, в которые ты можешь тренироваться:\n"
+            "(Нажми на дни, затем нажми ✅ Готово)\n\n"
+            f"Выбрано: {selected_names if selected_names else '—'}",
+            reply_markup=reply_markup
+        )
+
+        return PLAN_DAYS
+
+    async def receive_plan_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Получение времени на тренировку и генерация плана"""
+        from datetime import date
+        from ..core.plan_generator import PlanGenerator
+
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Парсим введённое время
+        try:
+            time_min = int(update.message.text.strip())
+
+            if time_min < 30 or time_min > 300:
+                await update.message.reply_text(
+                    "❌ Время должно быть от 30 до 300 минут\n\n"
+                    "Попробуй ещё раз или отправь /cancel"
+                )
+                return PLAN_TIME
+
+        except ValueError:
+            await update.message.reply_text(
+                "❌ Не могу распознать число\n\n"
+                "Напиши просто число (например: 60, 90, 120)\n"
+                "Или отправь /cancel для отмены"
+            )
+            return PLAN_TIME
+
+        # Получаем сохранённые данные
+        goal_data = context.user_data.get('goal_data')
+        selected_days = context.user_data.get('selected_days', [])
+
+        await update.message.reply_text(
+            f"⏳ Генерирую индивидуальный план...\n\n"
+            f"🎯 Цель: {goal_data['name']}\n"
+            f"📅 Дней в неделю: {len(selected_days)}\n"
+            f"⏱ Время на тренировку: {time_min} мин"
         )
 
         # Генерируем план
         generator = PlanGenerator(user.id)
-        trainings = generator.generate_base_plan(
+        trainings = generator.generate_detailed_plan(
             goal_distance=goal_data['distance'],
             goal_date=goal_data['date'],
-            weeks=4  # Генерируем на 4 недели
+            training_days=selected_days,
+            time_per_session=time_min,
+            weeks=4
         )
 
         # Сохраняем в БД
         count = generator.save_plan_to_db(trainings)
 
-        await query.edit_message_text(
+        await update.message.reply_text(
             f"✅ План создан!\n\n"
             f"🎯 Цель: {goal_data['name']} ({goal_data['date'].strftime('%d.%m.%Y')})\n"
             f"📅 Сгенерировано тренировок: {count}\n"
@@ -539,7 +684,16 @@ class TrainingBot:
             "Используй /plan чтобы посмотреть план на неделю"
         )
 
-        logger.info(f"Пользователь {telegram_id} сгенерировал план для {goal_data['name']}")
+        logger.info(f"Пользователь {telegram_id} создал индивидуальный план для {goal_data['name']}")
+        return ConversationHandler.END
+
+    async def cancel_plan_creation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Отмена создания плана"""
+        await update.message.reply_text(
+            "❌ Создание плана отменено\n\n"
+            "Используй /plan чтобы начать заново"
+        )
+        return ConversationHandler.END
 
     def run(self):
         """Запуск бота"""
