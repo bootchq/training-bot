@@ -76,7 +76,7 @@ class TrainingScheduler:
 
             # 1. Синхронизация с Garmin за вчера
             logger.info(f"Синхронизация Garmin за {yesterday}...")
-            count = garmin_sync.sync_date(self.user_id, yesterday)
+            count = garmin_sync.sync_date_for_user(self.user_id, yesterday)
             logger.info(f"Синхронизировано {count} тренировок")
 
             # 2. Анализ выполнения плана

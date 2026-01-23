@@ -132,20 +132,42 @@ class TrainingBot:
 
     async def sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /sync - ручная синхронизация с Garmin"""
+        from datetime import date, timedelta
+
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
-        await update.message.reply_text("📥 Синхронизирую тренировки с Garmin...")
+        # Проверяем есть ли credentials
+        credentials = db.get_user_garmin_credentials(user.id)
+        if not credentials:
+            await update.message.reply_text(
+                "❌ Учетные данные Garmin не найдены.\n\n"
+                "Используй /start для регистрации"
+            )
+            return
+
+        await update.message.reply_text("📥 Синхронизирую тренировки за последние 14 дней...")
 
         try:
-            count = garmin_sync.sync_today(user.id)
-            if count > 0:
-                await update.message.reply_text(f"✅ Сохранено {count} тренировок")
+            # Синхронизируем последние 14 дней
+            total_count = 0
+            today = date.today()
+
+            for i in range(14):
+                sync_date = today - timedelta(days=i)
+                count = garmin_sync.sync_date_for_user(user.id, sync_date)
+                total_count += count
+
+            if total_count > 0:
+                await update.message.reply_text(f"✅ Загружено {total_count} тренировок за последние 14 дней")
             else:
-                await update.message.reply_text("ℹ️ Тренировок за сегодня нет")
+                await update.message.reply_text("ℹ️ Новых тренировок за последние 14 дней не найдено")
         except Exception as e:
             logger.error(f"Ошибка синхронизации для {telegram_id}: {e}")
-            await update.message.reply_text("❌ Ошибка синхронизации. Проверь настройки Garmin.")
+            await update.message.reply_text(
+                "❌ Ошибка синхронизации с Garmin.\n\n"
+                "Проверь правильность логина/пароля в настройках аккаунта Garmin"
+            )
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - статистика за неделю/месяц"""
