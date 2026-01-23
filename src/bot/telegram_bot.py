@@ -50,6 +50,7 @@ class TrainingBot:
         self.app.add_handler(garmin_registration_handler)
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_plan_generation, pattern="^plan_"))
         logger.info("Обработчики команд настроены")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -207,9 +208,18 @@ class TrainingBot:
         plans = db.get_plan_for_week(user.id, start_of_week)
 
         if not plans:
+            # Предлагаем создать план автоматически
+            keyboard = [
+                [InlineKeyboardButton("📅 Тарки-Тау 50км (15 фев)", callback_data="plan_tarki")],
+                [InlineKeyboardButton("🏃 Марафон 42км (15 мар)", callback_data="plan_marathon")],
+                [InlineKeyboardButton("⛰ DWT 65км (15 апр)", callback_data="plan_dwt")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
             await update.message.reply_text(
-                "📅 План тренировок на эту неделю не найден.\n\n"
-                "Загрузи план через скрипт: python scripts/load_training_plan.py"
+                "📅 План тренировок не найден.\n\n"
+                "Выбери цель для автоматической генерации плана:",
+                reply_markup=reply_markup
             )
             return
 
@@ -480,6 +490,56 @@ class TrainingBot:
         )
 
         logger.info(f"Пользователь {update.effective_user.id} запросил регистрацию Garmin")
+
+    async def handle_plan_generation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка генерации плана тренировок"""
+        from datetime import date
+        from ..core.plan_generator import PlanGenerator
+
+        query = update.callback_query
+        await query.answer()
+
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Определяем цель по callback_data
+        goal_mapping = {
+            'plan_tarki': {'name': 'Тарки-Тау 50км', 'distance': 50, 'date': date(2026, 2, 15)},
+            'plan_marathon': {'name': 'Марафон 42км', 'distance': 42, 'date': date(2026, 3, 15)},
+            'plan_dwt': {'name': 'DWT 65км', 'distance': 65, 'date': date(2026, 4, 15)}
+        }
+
+        goal_data = goal_mapping.get(query.data)
+
+        if not goal_data:
+            await query.edit_message_text("❌ Неизвестная цель")
+            return
+
+        await query.edit_message_text(
+            f"⏳ Генерирую план подготовки к {goal_data['name']}...\n\n"
+            "Это займёт несколько секунд"
+        )
+
+        # Генерируем план
+        generator = PlanGenerator(user.id)
+        trainings = generator.generate_base_plan(
+            goal_distance=goal_data['distance'],
+            goal_date=goal_data['date'],
+            weeks=4  # Генерируем на 4 недели
+        )
+
+        # Сохраняем в БД
+        count = generator.save_plan_to_db(trainings)
+
+        await query.edit_message_text(
+            f"✅ План создан!\n\n"
+            f"🎯 Цель: {goal_data['name']} ({goal_data['date'].strftime('%d.%m.%Y')})\n"
+            f"📅 Сгенерировано тренировок: {count}\n"
+            f"📆 Период: 4 недели\n\n"
+            "Используй /plan чтобы посмотреть план на неделю"
+        )
+
+        logger.info(f"Пользователь {telegram_id} сгенерировал план для {goal_data['name']}")
 
     def run(self):
         """Запуск бота"""
