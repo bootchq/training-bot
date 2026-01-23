@@ -25,14 +25,31 @@
 В Railway проекте → выбери сервис → вкладка **Variables** → добавь:
 
 ```bash
-TELEGRAM_BOT_TOKEN=<<ВСТАВЬ_ТОКЕН_ОТ_BOTFATHER>>
-GARMIN_EMAIL=<<ВСТАВЬ_EMAIL>>
-GARMIN_PASSWORD=<<ВСТАВЬ_PASSWORD>>
-ANTHROPIC_API_KEY=<<ВСТАВЬ_CLAUDE_API_KEY>>
+# Telegram Bot
+TELEGRAM_BOT_TOKEN=8219028377:AAHDhNNoVGfPWA4XJL1PNjD4ZcDJJkuWxyI
+
+# Garmin Connect
+GARMIN_EMAIL=bootchq@gmail.com
+GARMIN_PASSWORD=Aa1424617556
+
+# Groq AI (бесплатный - получить на https://console.groq.com)
+GROQ_API_KEY=<<ПОЛУЧИ_НА_GROQ_CONSOLE>>
+
+# Database
 DATABASE_PATH=/data/training_bot.db
+
+# Timezone
 TZ=Europe/Moscow
+
+# Logging
 LOG_LEVEL=INFO
 ```
+
+**Важно:** Получи Groq API ключ (бесплатно):
+- Инструкция: [docs/groq_api_setup.md](groq_api_setup.md)
+- URL: https://console.groq.com
+- Войди через Google (bootchq@gmail.com)
+- Создай API Key → скопируй ключ (начинается с `gsk_...`)
 
 После добавления Railway автоматически перезапустит сервис.
 
