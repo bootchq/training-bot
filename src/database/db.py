@@ -115,6 +115,49 @@ class Database:
         Base.metadata.create_all(self.engine)
         logger.info("Таблицы созданы")
 
+        # Применяем миграции для существующих таблиц
+        self._migrate_existing_tables()
+
+    def _migrate_existing_tables(self):
+        """Миграция существующих таблиц (добавление новых полей)"""
+        import sqlite3
+
+        try:
+            # Подключаемся напрямую к SQLite для проверки схемы
+            db_path = str(self.engine.url).replace('sqlite:///', '')
+            conn = sqlite3.connect(db_path)
+            cursor = conn.cursor()
+
+            # Проверяем структуру таблицы users
+            cursor.execute("PRAGMA table_info(users)")
+            columns = [col[1] for col in cursor.fetchall()]
+
+            needs_migration = False
+
+            # Добавляем garmin_email если отсутствует
+            if 'garmin_email' not in columns:
+                logger.info("➕ Добавляю поле garmin_email в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN garmin_email VARCHAR")
+                needs_migration = True
+
+            # Добавляем garmin_password если отсутствует
+            if 'garmin_password' not in columns:
+                logger.info("➕ Добавляю поле garmin_password в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN garmin_password VARCHAR")
+                needs_migration = True
+
+            if needs_migration:
+                conn.commit()
+                logger.info("✅ Миграция базы данных успешно применена")
+            else:
+                logger.debug("✅ Схема базы данных актуальна")
+
+            conn.close()
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при миграции базы данных: {e}")
+            # Не падаем, просто логируем - возможно таблица ещё не создана
+
     @contextmanager
     def get_session(self):
         """Context manager для сессии БД"""
