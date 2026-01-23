@@ -1,0 +1,45 @@
+# Environment
+.env
+*.env
+
+# Database
+*.db
+*.sqlite
+
+# Google OAuth
+config/token.json
+config/token.pickle
+config/credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Logs
+*.log
+logs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+data/*.db
+data/*.json
+data/*.ics
+!data/.gitkeep
+
+# AI usage tracking
+ai_usage.json
