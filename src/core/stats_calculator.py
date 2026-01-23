@@ -113,10 +113,11 @@ class StatsCalculator:
                 Training.type == 'actual'
             ).order_by(Training.date).all()
 
-            # Загружаем атрибуты
+            # Загружаем все атрибуты
             for training in trainings:
                 _ = (training.id, training.date, training.distance_km,
-                     training.duration_min, training.avg_hr, training.hr_zones)
+                     training.duration_min, training.avg_hr, training.hr_zones,
+                     training.avg_pace, training.max_hr, training.elevation_m, training.notes)
 
             session.expunge_all()
             return trainings
@@ -154,10 +155,10 @@ class StatsCalculator:
         if stats['trainings_count'] == 0:
             return f"📊 Статистика за {stats['period']}\n\n{stats['message']}"
 
+        # Сводная статистика
         text = f"📊 Статистика за {stats['period']}\n"
         text += f"({stats['start_date'].strftime('%d.%m')} - {stats['end_date'].strftime('%d.%m')})\n\n"
 
-        # Основная статистика
         text += f"🏃 Тренировок: {stats['trainings_count']}\n"
         text += f"📏 Объём: {stats['total_distance']:.1f} км\n"
         text += f"⏱ Время: {stats['total_hours']}ч {stats['total_minutes']}мин\n"
@@ -165,51 +166,135 @@ class StatsCalculator:
         if stats['avg_hr']:
             text += f"💓 Средний пульс: {int(stats['avg_hr'])} bpm\n"
 
-        # Зоны пульса (если есть данные)
-        hr_zones = stats['hr_zones']
-        total_hr_time = sum(hr_zones.values())
+        # Детали каждой тренировки
+        text += f"\n━━━━━━━━━━━━━━━━━━━━\n"
+        text += f"\n🏃 Все тренировки:\n\n"
 
-        if total_hr_time > 0:
-            text += f"\n📈 Зоны пульса:\n"
-
-            zone_names = {
-                'z1': 'Z1 (восстановление)',
-                'z2': 'Z2 (аэробная)',
-                'z3': 'Z3 (пороговая)',
-                'z4': 'Z4 (VO2max)',
-                'z5': 'Z5 (спринт)'
-            }
-
-            for zone in ['z1', 'z2', 'z3', 'z4', 'z5']:
-                seconds = hr_zones.get(zone, 0)
-                if seconds > 0:
-                    minutes = seconds // 60
-                    percent = (seconds / total_hr_time) * 100
-                    text += f"   {zone_names[zone]}: {minutes}мин ({percent:.0f}%)\n"
-
-        # Прогресс к целям
-        text += self._format_goals_progress()
+        trainings = stats.get('trainings', [])
+        for i, training in enumerate(trainings, 1):
+            text += self._format_training_details(training, i)
+            text += "\n"
 
         return text
 
-    def _format_goals_progress(self) -> str:
-        """Форматирование прогресса к целям"""
-        today = date.today()
+    def _format_training_details(self, training: Training, number: int) -> str:
+        """
+        Форматирование деталей тренировки
 
-        goals = [
-            {'name': 'Тарки-Тау 50км', 'date': date(2026, 2, 15), 'distance': 50},
-            {'name': 'Марафон 42км', 'date': date(2026, 3, 15), 'distance': 42},
-            {'name': 'DWT 65км', 'date': date(2026, 4, 15), 'distance': 65}
-        ]
+        Args:
+            training: Объект тренировки
+            number: Порядковый номер
 
-        text = "\n🎯 До забегов:\n"
+        Returns:
+            Отформатированная строка
+        """
+        text = f"**{number}. {training.date.strftime('%d.%m.%Y')} ({self._get_day_name(training.date)})**\n"
 
-        for goal in goals:
-            if goal['date'] >= today:
-                days_left = (goal['date'] - today).days
-                text += f"   {goal['name']}: {days_left} дней\n"
+        # Расстояние
+        if training.distance_km:
+            text += f"   📏 Расстояние: {training.distance_km:.2f} км\n"
+
+        # Время
+        if training.duration_min:
+            hours = training.duration_min // 60
+            minutes = training.duration_min % 60
+            if hours > 0:
+                text += f"   ⏱ Время: {hours}ч {minutes}мин\n"
+            else:
+                text += f"   ⏱ Время: {minutes}мин\n"
+
+        # Темп
+        if training.avg_pace:
+            text += f"   ⚡️ Темп: {training.avg_pace} мин/км\n"
+
+        # Пульс
+        if training.avg_hr:
+            text += f"   💓 Средний пульс: {training.avg_hr} bpm\n"
+
+        if training.max_hr:
+            text += f"   💓 Макс пульс: {training.max_hr} bpm\n"
+
+        # Набор высоты
+        if training.elevation_m and training.elevation_m > 0:
+            text += f"   ⛰ Набор высоты: {training.elevation_m} м\n"
+
+        # Тип тренировки (по зонам пульса)
+        if training.hr_zones:
+            workout_type = self._determine_workout_type(training.hr_zones)
+            text += f"   🎯 Тип: {workout_type}\n"
+
+            # Зоны пульса
+            text += f"   📈 Зоны пульса: {self._format_hr_zones_compact(training.hr_zones)}\n"
+
+        # Заметки
+        if training.notes:
+            text += f"   📝 {training.notes}\n"
 
         return text
+
+    def _get_day_name(self, date_obj: date) -> str:
+        """Получить название дня недели"""
+        days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+        return days[date_obj.weekday()]
+
+    def _determine_workout_type(self, hr_zones: Dict[str, int]) -> str:
+        """
+        Определить тип тренировки по зонам пульса
+
+        Args:
+            hr_zones: Словарь с временем в зонах
+
+        Returns:
+            Название типа тренировки
+        """
+        if not hr_zones:
+            return "Неизвестно"
+
+        total_time = sum(hr_zones.values())
+        if total_time == 0:
+            return "Неизвестно"
+
+        # Процент времени в каждой зоне
+        z1_z2_percent = (hr_zones.get('z1', 0) + hr_zones.get('z2', 0)) / total_time * 100
+        z3_z4_percent = (hr_zones.get('z3', 0) + hr_zones.get('z4', 0)) / total_time * 100
+        z5_percent = hr_zones.get('z5', 0) / total_time * 100
+
+        if z5_percent > 10:
+            return "Анаэробная (спринт)"
+        elif z3_z4_percent > 50:
+            return "Пороговая / Интенсивная"
+        elif z1_z2_percent > 70:
+            return "Аэробная (база)"
+        else:
+            return "Смешанная"
+
+    def _format_hr_zones_compact(self, hr_zones: Dict[str, int]) -> str:
+        """
+        Компактное форматирование зон пульса
+
+        Args:
+            hr_zones: Словарь с временем в зонах
+
+        Returns:
+            Строка вида "Z1: 20мин (40%), Z2: 30мин (60%)"
+        """
+        if not hr_zones:
+            return "Нет данных"
+
+        total_time = sum(hr_zones.values())
+        if total_time == 0:
+            return "Нет данных"
+
+        parts = []
+        for zone in ['z1', 'z2', 'z3', 'z4', 'z5']:
+            seconds = hr_zones.get(zone, 0)
+            if seconds > 0:
+                minutes = seconds // 60
+                percent = (seconds / total_time) * 100
+                zone_num = zone.upper()
+                parts.append(f"{zone_num}: {minutes}мин ({percent:.0f}%)")
+
+        return ", ".join(parts) if parts else "Нет данных"
 
 
 def create_stats_calculator(user_id: int) -> StatsCalculator:
