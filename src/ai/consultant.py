@@ -4,7 +4,11 @@ from typing import Optional, Dict, Any
 from pathlib import Path
 import json
 
-from anthropic import Anthropic
+try:
+    from openai import OpenAI
+    OPENAI_AVAILABLE = True
+except ImportError:
+    OPENAI_AVAILABLE = False
 
 from ..database.db import db, Training, WellnessSurvey
 from ..utils.logger import logger
@@ -12,18 +16,28 @@ from ..utils.config import Config
 
 
 class TrainingConsultant:
-    """AI-консультант на базе Claude"""
+    """AI-консультант на базе Groq (бесплатный)"""
 
     def __init__(self):
         """Инициализация консультанта"""
-        self.api_key = Config.ANTHROPIC_API_KEY
-        if self.api_key:
-            self.client = Anthropic(api_key=self.api_key)
+        self.api_key = Config.GROQ_API_KEY or Config.ANTHROPIC_API_KEY
+
+        if self.api_key and OPENAI_AVAILABLE:
+            # Groq использует OpenAI-совместимый API
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
+            self.model = "llama-3.1-70b-versatile"  # Groq модель (бесплатно)
+            logger.info("AI-консультант инициализирован (Groq)")
         else:
             self.client = None
-            logger.warning("ANTHROPIC_API_KEY не установлен, AI-консультант недоступен")
+            if not OPENAI_AVAILABLE:
+                logger.warning("Библиотека openai не установлена")
+            else:
+                logger.warning("GROQ_API_KEY не установлен, AI-консультант недоступен")
 
-        self.daily_limit = 10  # Максимум запросов в день
+        self.daily_limit = 100  # Groq: больший лимит (бесплатно)
         self.usage_file = Path(Config.DATA_DIR) / 'ai_usage.json'
 
     def get_training_advice(
@@ -61,29 +75,33 @@ class TrainingConsultant:
         prompt = self._build_prompt(training, wellness_data)
 
         try:
-            # Запрос к Claude
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=500,
-                temperature=0.7,
+            # Запрос к Groq (OpenAI-совместимый API)
+            response = self.client.chat.completions.create(
+                model=self.model,
                 messages=[
+                    {
+                        "role": "system",
+                        "content": "Ты - опытный тренер по бегу, специализирующийся на ультрамарафонах и трейлраннинге. Даёшь короткие практические советы на русском языке."
+                    },
                     {
                         "role": "user",
                         "content": prompt
                     }
-                ]
+                ],
+                max_tokens=500,
+                temperature=0.7
             )
 
-            advice = response.content[0].text
+            advice = response.choices[0].message.content
 
             # Увеличиваем счётчик использования
             self._increment_usage(user_id)
 
-            logger.info(f"AI совет получен для пользователя {user_id}")
+            logger.info(f"AI совет получен для пользователя {user_id} (Groq)")
             return advice
 
         except Exception as e:
-            logger.error(f"Ошибка запроса к Claude API: {e}")
+            logger.error(f"Ошибка запроса к Groq API: {e}")
             return self._get_template_advice(training_date)
 
     def _build_prompt(

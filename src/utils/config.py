@@ -33,6 +33,7 @@ class Config:
     )
 
     # AI API
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Бесплатный (рекомендуется)
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
@@ -69,8 +70,9 @@ class Config:
             )
 
         # Проверка AI API (хотя бы один)
-        if not cls.ANTHROPIC_API_KEY and not cls.OPENAI_API_KEY:
-            print("⚠️  Предупреждение: Не указан API-ключ для AI (Claude/OpenAI)")
+        if not cls.GROQ_API_KEY and not cls.ANTHROPIC_API_KEY and not cls.OPENAI_API_KEY:
+            print("⚠️  Предупреждение: Не указан API-ключ для AI (Groq/Claude/OpenAI)")
+            print("   Получи бесплатный ключ Groq: https://console.groq.com")
 
         # Создание папок
         cls.DATA_DIR.mkdir(exist_ok=True)

@@ -10,8 +10,8 @@ google-auth-httplib2==0.2.0
 google-auth-oauthlib==1.2.0
 
 # AI API
-anthropic==0.18.1
-# openai==1.12.0  # альтернатива Claude
+openai==1.58.1  # Для Groq API (бесплатный, рекомендуется)
+# anthropic==0.18.1  # Альтернатива (платный)
 
 # Scheduler
 APScheduler==3.10.4
