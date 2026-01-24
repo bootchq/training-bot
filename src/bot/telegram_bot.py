@@ -738,10 +738,36 @@ class TrainingBot:
         )
         return ConversationHandler.END
 
+    async def register_commands(self):
+        """Регистрация команд бота в BotFather"""
+        from telegram import BotCommand
+
+        commands = [
+            BotCommand("start", "Начало работы"),
+            BotCommand("help", "Помощь"),
+            BotCommand("sync", "Синхронизация с Garmin"),
+            BotCommand("stats", "Статистика за неделю/месяц"),
+            BotCommand("plan", "План тренировок на неделю"),
+            BotCommand("calendar", "Синхронизация с Google Calendar"),
+        ]
+
+        try:
+            await self.app.bot.set_my_commands(commands)
+            logger.info(f"✅ Зарегистрировано {len(commands)} команд")
+        except Exception as e:
+            logger.error(f"❌ Ошибка регистрации команд: {e}")
+
     def run(self):
         """Запуск бота"""
         try:
             logger.info("🚀 Бот запущен")
+
+            # Регистрируем команды при запуске
+            async def post_init(app):
+                await self.register_commands()
+
+            self.app.post_init = post_init
+
             self.app.run_polling(allowed_updates=Update.ALL_TYPES)
         except Exception as e:
             logger.error(f"❌ Ошибка подключения к Telegram API: {e}")
