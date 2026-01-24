@@ -52,7 +52,7 @@
 ### 1. Создать GitHub репозиторий
 
 ```bash
-cd "/Users/noor/Documents/Obsidian Vault/Cursor/Моя жизнь/Спорт/Бот тренера/bot_trainer"
+cd "/Users/noor/Documents/Obsidian Vault/Бот тренера/bot_trainer"
 
 # Инициализировать git (если ещё не сделано)
 git init

@@ -10,7 +10,7 @@ from ..utils.logger import logger
 from ..database.db import db
 from ..integrations.garmin_sync import garmin_sync
 from ..integrations.calendar_sync import calendar_sync
-from ..core.scheduler import scheduler
+from ..core.scheduler import TrainingScheduler
 from ..core.stats_calculator import StatsCalculator
 from ..core.wellness_survey import WellnessSurvey
 
@@ -27,7 +27,7 @@ class TrainingBot:
         self.token = Config.TELEGRAM_BOT_TOKEN
         self.app = Application.builder().token(self.token).build()
         self._setup_handlers()
-        self.scheduler_started = False
+        self.user_schedulers = {}  # Словарь {user_id: scheduler}
         logger.info("Бот инициализирован")
 
     def _setup_handlers(self):
@@ -93,11 +93,11 @@ class TrainingBot:
             logger.info(f"Новый пользователь {telegram_id}, запрос регистрации Garmin")
             return
 
-        # Запускаем scheduler при первом старте
-        if not self.scheduler_started:
-            scheduler.telegram_bot = self.app.bot
-            scheduler.start(user.id, telegram_id)
-            self.scheduler_started = True
+        # Запускаем scheduler для пользователя
+        if user.id not in self.user_schedulers:
+            user_scheduler = TrainingScheduler(telegram_bot=self.app.bot)
+            user_scheduler.start(user.id, telegram_id)
+            self.user_schedulers[user.id] = user_scheduler
             logger.info(f"Scheduler запущен для пользователя {telegram_id}")
 
         welcome_text = """
@@ -200,7 +200,7 @@ class TrainingBot:
 
         # Форматируем и отправляем
         stats_text = calculator.format_stats(stats)
-        await update.message.reply_text(stats_text)
+        await update.message.reply_text(stats_text, parse_mode='Markdown')
 
         logger.info(f"Пользователь {telegram_id} запросил статистику за {period}")
 
@@ -238,7 +238,8 @@ class TrainingBot:
         await update.message.reply_text(
             f"📅 **План тренировок на неделю**\n"
             f"({start_of_week.strftime('%d.%m')} - {(start_of_week + timedelta(days=6)).strftime('%d.%m')})\n\n"
-            f"Всего тренировок: {len(plans)}"
+            f"Всего тренировок: {len(plans)}",
+            parse_mode='Markdown'
         )
 
         # Отправляем каждую тренировку отдельным сообщением
@@ -466,11 +467,11 @@ class TrainingBot:
                 "Проверь правильность логина/пароля и попробуй /sync"
             )
 
-        # Запускаем scheduler
-        if not self.scheduler_started:
-            scheduler.telegram_bot = self.app.bot
-            scheduler.start(user.id, telegram_id)
-            self.scheduler_started = True
+        # Запускаем scheduler для пользователя
+        if user.id not in self.user_schedulers:
+            user_scheduler = TrainingScheduler(telegram_bot=self.app.bot)
+            user_scheduler.start(user.id, telegram_id)
+            self.user_schedulers[user.id] = user_scheduler
 
         await update.message.reply_text(
             "🎉 Всё готово!\n\n"
@@ -706,6 +707,10 @@ class TrainingBot:
 
     def stop(self):
         """Остановка бота"""
-        if self.scheduler_started:
-            scheduler.stop()
+        for user_id, user_scheduler in self.user_schedulers.items():
+            try:
+                user_scheduler.stop()
+                logger.info(f"Scheduler остановлен для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка остановки scheduler для {user_id}: {e}")
         logger.info("⏹️  Бот остановлен")
