@@ -194,6 +194,17 @@ class TrainingBot:
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
+        # Проверяем есть ли credentials
+        credentials = db.get_user_garmin_credentials(user.id)
+        if not credentials:
+            await update.message.reply_text(
+                "📊 Статистика недоступна\n\n"
+                "❌ Учетные данные Garmin не найдены.\n\n"
+                "Используй /start для регистрации, затем посмотри статистику.",
+                parse_mode='Markdown'
+            )
+            return
+
         # Создаём калькулятор
         calculator = StatsCalculator(user.id)
 
