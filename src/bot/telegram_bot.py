@@ -280,50 +280,31 @@ class TrainingBot:
         logger.info(f"Пользователь {telegram_id} запросил план на неделю")
 
     async def calendar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /calendar - синхронизация с Google Calendar"""
+        """Команда /calendar - экспорт плана в ICS файл для импорта в календарь"""
         from datetime import date, timedelta
 
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
-        await update.message.reply_text("📅 Синхронизирую план с Google Calendar...")
+        # Определяем начало текущей недели
+        today = date.today()
+        start_of_week = today - timedelta(days=today.weekday())
 
-        try:
-            # Определяем начало текущей недели
-            today = date.today()
-            start_of_week = today - timedelta(days=today.weekday())
+        # Проверяем что план существует
+        plans = db.get_plan_for_week(user.id, start_of_week)
 
-            # Синхронизируем план
-            result = calendar_sync.sync_weekly_plan(user.id, start_of_week)
-
-            if result['success']:
-                msg = f"✅ Синхронизация завершена:\n\n"
-                msg += f"• Создано событий: {result['created']}\n"
-
-                if result['errors'] > 0:
-                    msg += f"• Ошибок: {result['errors']}"
-
-                await update.message.reply_text(msg)
-            else:
-                error_msg = result.get('error', 'Неизвестная ошибка')
-                await update.message.reply_text(
-                    f"❌ Ошибка синхронизации: {error_msg}\n\n"
-                    "Проверь авторизацию в Google Calendar или создай credentials.json"
-                )
-
-        except Exception as e:
-            logger.error(f"Ошибка синхронизации календаря для {telegram_id}: {e}")
+        if not plans:
             await update.message.reply_text(
-                "❌ Ошибка синхронизации с Google Calendar.\n\n"
-                "Убедись что:\n"
-                "1. Файл credentials.json в папке data/\n"
-                "2. Ты прошёл OAuth авторизацию"
+                "📅 План тренировок не найден.\n\n"
+                "Создай план командой /plan, затем экспортируй в календарь.",
+                parse_mode='Markdown'
             )
+            return
 
-        logger.info(f"Пользователь {telegram_id} запросил синхронизацию календаря")
+        await update.message.reply_text("📅 Генерирую ICS файл для импорта в календарь...")
 
-        # Дополнительно отправляем ICS файл для импорта в iPhone
         try:
+            # Генерируем ICS файл
             ics_path = calendar_sync.generate_ics_file(user.id, start_of_week, weeks=1)
 
             if ics_path:
@@ -331,18 +312,39 @@ class TrainingBot:
                 with open(ics_path, 'rb') as ics_file:
                     await update.message.reply_document(
                         document=ics_file,
-                        filename=f'план_{start_of_week.strftime("%d.%m")}.ics',
+                        filename=f'план_{start_of_week.strftime("%d_%m")}.ics',
                         caption=(
-                            "📲 ICS файл для импорта в iPhone Calendar:\n\n"
+                            "📲 **ICS файл для импорта в календарь**\n\n"
+                            "**iPhone/iPad:**\n"
                             "1. Скачай файл\n"
                             "2. Открой его\n"
-                            "3. Выбери \"Добавить в Календарь\"\n\n"
-                            "План автоматически добавится в твой календарь"
-                        )
+                            "3. Нажми \"Добавить всё\"\n\n"
+                            "**Android:**\n"
+                            "1. Скачай файл\n"
+                            "2. Открой Google Calendar\n"
+                            "3. Настройки → Импорт/Экспорт → Импортировать\n\n"
+                            "**Компьютер:**\n"
+                            "1. Скачай файл\n"
+                            "2. Открой в Google Calendar / Outlook / Apple Calendar\n\n"
+                            f"План на неделю ({start_of_week.strftime('%d.%m')} - "
+                            f"{(start_of_week + timedelta(days=6)).strftime('%d.%m')})\n"
+                            f"Тренировок: {len(plans)}"
+                        ),
+                        parse_mode='Markdown'
                     )
                 logger.info(f"ICS файл отправлен пользователю {telegram_id}")
+            else:
+                await update.message.reply_text(
+                    "❌ Ошибка создания ICS файла.\n\n"
+                    "Попробуй позже или обратись к разработчику."
+                )
+
         except Exception as e:
-            logger.error(f"Ошибка отправки ICS файла: {e}")
+            logger.error(f"Ошибка отправки ICS файла для {telegram_id}: {e}")
+            await update.message.reply_text(
+                "❌ Ошибка экспорта плана.\n\n"
+                "Попробуй позже или создай план заново командой /plan"
+            )
 
     async def handle_survey_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка нажатия кнопок опроса самочувствия"""
