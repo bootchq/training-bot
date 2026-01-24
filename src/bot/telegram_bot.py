@@ -44,7 +44,7 @@ class TrainingBot:
 
         # ConversationHandler для создания плана
         plan_creation_handler = ConversationHandler(
-            entry_points=[CallbackQueryHandler(self.ask_plan_days, pattern="^plan_")]],
+            entry_points=[CallbackQueryHandler(self.ask_plan_days, pattern="^plan_")],
             states={
                 PLAN_DAYS: [CallbackQueryHandler(self.receive_plan_days, pattern="^days_")],
                 PLAN_TIME: [MessageHandler(filters.TEXT & ~filters.COMMAND, self.receive_plan_time)]
