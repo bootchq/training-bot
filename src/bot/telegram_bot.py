@@ -528,9 +528,13 @@ class TrainingBot:
             def __init__(self, query):
                 self.chat = query.message.chat
                 self.message_id = query.message.message_id
+                self._query = query
 
             async def reply_text(self, *args, **kwargs):
-                await query.message.reply_text(*args, **kwargs)
+                await self._query.message.reply_text(*args, **kwargs)
+
+            async def reply_document(self, *args, **kwargs):
+                await self._query.message.reply_document(*args, **kwargs)
 
         original_message = update.message
         update.message = FakeMessage(query)
