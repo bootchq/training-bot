@@ -137,13 +137,13 @@ class TrainingBot:
 /plan — План тренировок на текущую неделю
 /stats — Статистика за неделю
 /stats month — Статистика за месяц
-/calendar — Синхронизация с Google Calendar
+/calendar — Скачать план в формате ICS для импорта в календарь
 
 ✅ Реализовано:
 • Автоматическая синхронизация Garmin (00:00)
 • Адаптивный план тренировок
 • Вечерний опрос самочувствия
-• Интеграция с Google Calendar
+• Экспорт плана в календарь (ICS файл)
 
 🤖 В разработке:
 • AI-консультант с советами
@@ -750,7 +750,7 @@ class TrainingBot:
             BotCommand("sync", "Синхронизация с Garmin"),
             BotCommand("stats", "Статистика за неделю/месяц"),
             BotCommand("plan", "План тренировок на неделю"),
-            BotCommand("calendar", "Синхронизация с Google Calendar"),
+            BotCommand("calendar", "Скачать план для календаря"),
         ]
 
         try:
