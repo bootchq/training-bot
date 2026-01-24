@@ -226,9 +226,27 @@ class PlanGenerator:
         Returns:
             Словарь с деталями тренировки
         """
-        warmup = 20  # Разминка всегда 20 мин
-        cooldown = 15  # Заминка всегда 15 мин
-        main_time = base_time - warmup - cooldown
+        # Применяем прогрессию к общему времени
+        total_time = int(base_time * multiplier)
+
+        # Адаптивные разминка/заминка в зависимости от длительности
+        if total_time < 40:
+            warmup = 10
+            cooldown = 5
+        elif total_time < 60:
+            warmup = 15
+            cooldown = 10
+        else:
+            warmup = 20
+            cooldown = 15
+
+        main_time = total_time - warmup - cooldown
+
+        # Валидация: если main_time всё равно отрицательный
+        if main_time <= 0:
+            main_time = 10  # Минимальная основная часть
+            warmup = (total_time - main_time) // 2
+            cooldown = total_time - main_time - warmup
 
         if workout_type == 'intervals':
             # Крейсовые интервалы
@@ -240,7 +258,7 @@ class PlanGenerator:
                 f"- Заминка: {cooldown} мин z1–z2"
             )
             target_zone = 'Z2-Z3'
-            distance_km = round((base_time * multiplier) / 5.0, 1)  # 5 мин/км средний темп
+            distance_km = round(total_time / 5.0, 1)  # 5 мин/км средний темп
 
         elif workout_type == 'tempo':
             # Темповый бег
@@ -254,7 +272,7 @@ class PlanGenerator:
                 f"- Заминка: {cooldown} мин z1–z2"
             )
             target_zone = 'Z2-Z3'
-            distance_km = round((base_time * multiplier) / 5.2, 1)  # 5:12 мин/км темп
+            distance_km = round(total_time / 5.2, 1)  # 5:12 мин/км темп
 
         elif workout_type == 'long':
             # Длинная тренировка
@@ -268,7 +286,7 @@ class PlanGenerator:
                 f"- Заминка: {cooldown} мин z1–z2"
             )
             target_zone = 'Z2'
-            distance_km = round((base_time * multiplier) / 5.5, 1)  # 5:30 мин/км
+            distance_km = round(total_time / 5.5, 1)  # 5:30 мин/км
 
         elif workout_type == 'recovery':
             # Восстановительная
@@ -279,7 +297,7 @@ class PlanGenerator:
                 f"- Заминка: {cooldown} мин z1"
             )
             target_zone = 'Z1-Z2'
-            distance_km = round((base_time * multiplier) / 6.0, 1)  # 6 мин/км медленный
+            distance_km = round(total_time / 6.0, 1)  # 6 мин/км медленный
 
         else:  # easy
             # Легкий бег
@@ -290,9 +308,7 @@ class PlanGenerator:
                 f"- Заминка: {cooldown} мин z1–z2"
             )
             target_zone = 'Z2'
-            distance_km = round((base_time * multiplier) / 5.5, 1)  # 5:30 мин/км
-
-        total_time = int(base_time * multiplier)
+            distance_km = round(total_time / 5.5, 1)  # 5:30 мин/км
 
         return {
             'description': f"{description}\n- **~{total_time} минут (~{distance_km}км)**",

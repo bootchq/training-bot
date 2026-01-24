@@ -62,6 +62,7 @@ class TrainingBot:
         self.app.add_handler(plan_creation_handler)
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
         logger.info("Обработчики команд настроены")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -103,20 +104,27 @@ class TrainingBot:
         welcome_text = """
 🏃 С возвращением!
 
-Команды:
-/sync — Синхронизация с Garmin (вручную)
-/stats — Статистика за неделю/месяц
-/plan — План на неделю
-/calendar — Синхронизация с Google Calendar
-/help — Помощь
-
 Автоматически:
 • 00:00 - анализ выполнения + адаптация + опрос
 • 01:00 - отправка плана на неделю
 
-Удачных тренировок! 💪
+Используй кнопки ниже для быстрого доступа или команды:
+/sync /stats /plan /calendar /help
 """
-        await update.message.reply_text(welcome_text)
+        # Inline кнопки для быстрого доступа
+        keyboard = [
+            [
+                InlineKeyboardButton("📊 Статистика", callback_data="quick_stats"),
+                InlineKeyboardButton("📅 План", callback_data="quick_plan")
+            ],
+            [
+                InlineKeyboardButton("🔄 Синхронизация", callback_data="quick_sync"),
+                InlineKeyboardButton("📲 Календарь", callback_data="quick_calendar")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
         logger.info(f"Пользователь {telegram_id} запустил бота")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -506,6 +514,40 @@ class TrainingBot:
         )
 
         logger.info(f"Пользователь {update.effective_user.id} запросил регистрацию Garmin")
+
+    async def handle_quick_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка quick action кнопок"""
+        query = update.callback_query
+        await query.answer()
+
+        # Создаём адаптированный Update с message вместо callback_query
+        # Это позволяет переиспользовать существующие команды
+        class FakeMessage:
+            def __init__(self, query):
+                self.chat = query.message.chat
+                self.message_id = query.message.message_id
+
+            async def reply_text(self, *args, **kwargs):
+                await query.message.reply_text(*args, **kwargs)
+
+        original_message = update.message
+        update.message = FakeMessage(query)
+
+        action = query.data.replace('quick_', '')
+
+        try:
+            if action == 'stats':
+                await self.stats(update, context)
+            elif action == 'plan':
+                await self.plan(update, context)
+            elif action == 'sync':
+                await self.sync(update, context)
+            elif action == 'calendar':
+                await self.calendar(update, context)
+        finally:
+            update.message = original_message
+
+        logger.info(f"Пользователь {update.effective_user.id} использовал quick action: {action}")
 
     async def ask_plan_days(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Начало создания плана - выбор дней недели"""
