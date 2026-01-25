@@ -1,6 +1,8 @@
 """Расчёт статистики тренировок"""
 from datetime import date, timedelta
 from typing import Dict, Any, List
+from pathlib import Path
+import tempfile
 
 from ..database.db import db, Training
 from ..utils.logger import logger
@@ -295,6 +297,207 @@ class StatsCalculator:
                 parts.append(f"{zone_num}: {minutes}мин ({percent:.0f}%)")
 
         return ", ".join(parts) if parts else "Нет данных"
+
+
+    def generate_weekly_chart(self) -> str:
+        """
+        Генерация графика за неделю (объём по дням)
+
+        Returns:
+            Путь к файлу с графиком
+        """
+        try:
+            import matplotlib
+            matplotlib.use('Agg')  # Без GUI
+            import matplotlib.pyplot as plt
+            import matplotlib.dates as mdates
+
+            # Получаем данные за 4 недели
+            end_date = date.today()
+            start_date = end_date - timedelta(days=28)
+            trainings = self._get_trainings_for_period(start_date, end_date)
+
+            if not trainings:
+                return None
+
+            # Группируем по неделям
+            weeks_data = {}
+            for t in trainings:
+                week_start = t.date - timedelta(days=t.date.weekday())
+                week_label = week_start.strftime('%d.%m')
+                if week_label not in weeks_data:
+                    weeks_data[week_label] = {'distance': 0, 'duration': 0, 'count': 0}
+                weeks_data[week_label]['distance'] += t.distance_km or 0
+                weeks_data[week_label]['duration'] += t.duration_min or 0
+                weeks_data[week_label]['count'] += 1
+
+            # Создаём график
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            weeks = list(weeks_data.keys())
+            distances = [weeks_data[w]['distance'] for w in weeks]
+            counts = [weeks_data[w]['count'] for w in weeks]
+
+            # Столбцы объёма
+            bars = ax.bar(weeks, distances, color='#4CAF50', alpha=0.8, label='Объём (км)')
+
+            # Подписи над столбцами
+            for bar, dist, cnt in zip(bars, distances, counts):
+                height = bar.get_height()
+                ax.text(bar.get_x() + bar.get_width()/2., height,
+                       f'{dist:.1f} км\n({cnt} трен.)',
+                       ha='center', va='bottom', fontsize=10)
+
+            ax.set_xlabel('Неделя', fontsize=12)
+            ax.set_ylabel('Объём (км)', fontsize=12)
+            ax.set_title('📊 Объём тренировок по неделям', fontsize=14, fontweight='bold')
+            ax.legend()
+
+            plt.tight_layout()
+
+            # Сохраняем
+            temp_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            plt.savefig(temp_file.name, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            logger.info(f"График создан: {temp_file.name}")
+            return temp_file.name
+
+        except Exception as e:
+            logger.error(f"Ошибка генерации графика: {e}")
+            return None
+
+    def generate_hr_zones_chart(self) -> str:
+        """
+        Генерация графика распределения по зонам пульса
+
+        Returns:
+            Путь к файлу с графиком
+        """
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+
+            # Получаем статистику за месяц
+            stats = self.get_month_stats()
+
+            if not stats.get('hr_zones'):
+                return None
+
+            zones = stats['hr_zones']
+            total_time = sum(zones.values())
+
+            if total_time == 0:
+                return None
+
+            # Данные для графика
+            labels = ['Z1\n(разминка)', 'Z2\n(база)', 'Z3\n(темп)', 'Z4\n(порог)', 'Z5\n(анаэр.)']
+            values = [zones.get(f'z{i}', 0) / 60 for i in range(1, 6)]  # в минутах
+            colors = ['#81C784', '#4CAF50', '#FFC107', '#FF9800', '#F44336']
+
+            # Создаём график
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 6))
+
+            # Pie chart
+            non_zero = [(l, v, c) for l, v, c in zip(labels, values, colors) if v > 0]
+            if non_zero:
+                pie_labels, pie_values, pie_colors = zip(*non_zero)
+                ax1.pie(pie_values, labels=pie_labels, colors=pie_colors, autopct='%1.0f%%',
+                       startangle=90, textprops={'fontsize': 10})
+                ax1.set_title('Распределение по зонам', fontsize=12, fontweight='bold')
+
+            # Bar chart
+            ax2.bar(labels, values, color=colors, alpha=0.8)
+            ax2.set_ylabel('Время (мин)', fontsize=11)
+            ax2.set_title('Время в каждой зоне', fontsize=12, fontweight='bold')
+
+            # Подписи
+            for i, v in enumerate(values):
+                if v > 0:
+                    ax2.text(i, v + 1, f'{int(v)} мин', ha='center', fontsize=9)
+
+            fig.suptitle('💓 Анализ пульсовых зон (месяц)', fontsize=14, fontweight='bold')
+            plt.tight_layout()
+
+            # Сохраняем
+            temp_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            plt.savefig(temp_file.name, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            logger.info(f"HR zones график создан: {temp_file.name}")
+            return temp_file.name
+
+        except Exception as e:
+            logger.error(f"Ошибка генерации HR графика: {e}")
+            return None
+
+    def generate_progress_chart(self) -> str:
+        """
+        Генерация графика прогресса (объём по месяцам)
+
+        Returns:
+            Путь к файлу с графиком
+        """
+        try:
+            import matplotlib
+            matplotlib.use('Agg')
+            import matplotlib.pyplot as plt
+
+            # Получаем данные за 3 месяца
+            end_date = date.today()
+            start_date = end_date - timedelta(days=90)
+            trainings = self._get_trainings_for_period(start_date, end_date)
+
+            if len(trainings) < 3:
+                return None
+
+            # Группируем по месяцам
+            months_data = {}
+            for t in trainings:
+                month_key = t.date.strftime('%Y-%m')
+                month_label = t.date.strftime('%B')[:3]
+                if month_key not in months_data:
+                    months_data[month_key] = {'label': month_label, 'distance': 0, 'time': 0}
+                months_data[month_key]['distance'] += t.distance_km or 0
+                months_data[month_key]['time'] += t.duration_min or 0
+
+            # Создаём график
+            fig, ax1 = plt.subplots(figsize=(10, 6))
+
+            months = list(months_data.keys())
+            labels = [months_data[m]['label'] for m in months]
+            distances = [months_data[m]['distance'] for m in months]
+            times = [months_data[m]['time'] / 60 for m in months]  # в часах
+
+            # Линия объёма
+            color1 = '#4CAF50'
+            ax1.bar(labels, distances, color=color1, alpha=0.7, label='Объём (км)')
+            ax1.set_xlabel('Месяц', fontsize=12)
+            ax1.set_ylabel('Объём (км)', color=color1, fontsize=12)
+            ax1.tick_params(axis='y', labelcolor=color1)
+
+            # Вторая ось - время
+            ax2 = ax1.twinx()
+            color2 = '#2196F3'
+            ax2.plot(labels, times, color=color2, marker='o', linewidth=2, markersize=8, label='Время (ч)')
+            ax2.set_ylabel('Время (ч)', color=color2, fontsize=12)
+            ax2.tick_params(axis='y', labelcolor=color2)
+
+            fig.suptitle('📈 Прогресс тренировок', fontsize=14, fontweight='bold')
+            fig.legend(loc='upper left', bbox_to_anchor=(0.1, 0.9))
+            plt.tight_layout()
+
+            # Сохраняем
+            temp_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            plt.savefig(temp_file.name, dpi=150, bbox_inches='tight')
+            plt.close()
+
+            return temp_file.name
+
+        except Exception as e:
+            logger.error(f"Ошибка генерации progress графика: {e}")
+            return None
 
 
 def create_stats_calculator(user_id: int) -> StatsCalculator:

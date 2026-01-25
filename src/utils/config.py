@@ -32,6 +32,11 @@ class Config:
         str(CONFIG_DIR / "token.json")
     )
 
+    # Strava
+    STRAVA_CLIENT_ID = os.getenv("STRAVA_CLIENT_ID")
+    STRAVA_CLIENT_SECRET = os.getenv("STRAVA_CLIENT_SECRET")
+    STRAVA_REDIRECT_URI = os.getenv("STRAVA_REDIRECT_URI", "http://localhost:8080/callback")
+
     # AI API
     GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Бесплатный (рекомендуется)
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
@@ -58,8 +63,6 @@ class Config:
         """Проверка обязательных переменных"""
         required = [
             ("TELEGRAM_BOT_TOKEN", cls.TELEGRAM_BOT_TOKEN),
-            ("GARMIN_EMAIL", cls.GARMIN_EMAIL),
-            ("GARMIN_PASSWORD", cls.GARMIN_PASSWORD),
         ]
 
         missing = [name for name, value in required if not value]
@@ -68,6 +71,11 @@ class Config:
             raise ValueError(
                 f"Отсутствуют обязательные переменные окружения: {', '.join(missing)}"
             )
+
+        # Проверка трекеров (хотя бы один)
+        if not (cls.GARMIN_EMAIL or cls.STRAVA_CLIENT_ID):
+            print("⚠️  Предупреждение: Не настроен ни Garmin, ни Strava")
+            print("   Настрой учётные данные в .env")
 
         # Проверка AI API (хотя бы один)
         if not cls.GROQ_API_KEY and not cls.ANTHROPIC_API_KEY and not cls.OPENAI_API_KEY:

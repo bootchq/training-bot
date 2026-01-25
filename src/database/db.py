@@ -19,6 +19,12 @@ class User(Base):
     telegram_id = Column(Integer, unique=True, nullable=False, index=True)
     garmin_email = Column(String, nullable=True)
     garmin_password = Column(String, nullable=True)
+    # Strava OAuth
+    strava_access_token = Column(String, nullable=True)
+    strava_refresh_token = Column(String, nullable=True)
+    strava_token_expires = Column(Integer, nullable=True)  # Unix timestamp
+    # Google Calendar OAuth
+    google_refresh_token = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -146,6 +152,20 @@ class Database:
             if 'garmin_password' not in columns:
                 logger.info("➕ Добавляю поле garmin_password в таблицу users")
                 cursor.execute("ALTER TABLE users ADD COLUMN garmin_password VARCHAR")
+                needs_migration = True
+
+            # Strava OAuth поля
+            if 'strava_access_token' not in columns:
+                logger.info("➕ Добавляю поля Strava в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN strava_access_token VARCHAR")
+                cursor.execute("ALTER TABLE users ADD COLUMN strava_refresh_token VARCHAR")
+                cursor.execute("ALTER TABLE users ADD COLUMN strava_token_expires INTEGER")
+                needs_migration = True
+
+            # Google Calendar OAuth
+            if 'google_refresh_token' not in columns:
+                logger.info("➕ Добавляю поле google_refresh_token в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN google_refresh_token VARCHAR")
                 needs_migration = True
 
             if needs_migration:
@@ -445,6 +465,88 @@ class Database:
                 return None
 
             return (user.garmin_email, user.garmin_password)
+
+    def save_user_strava_credentials(self, user_id: int, access_token: str, refresh_token: str, expires_at: int) -> bool:
+        """
+        Сохранить токены Strava для пользователя
+
+        Args:
+            user_id: ID пользователя
+            access_token: Access token
+            refresh_token: Refresh token
+            expires_at: Unix timestamp истечения
+
+        Returns:
+            True если успешно
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return False
+
+            user.strava_access_token = access_token
+            user.strava_refresh_token = refresh_token
+            user.strava_token_expires = expires_at
+
+            logger.info(f"Сохранены токены Strava для пользователя {user_id}")
+            return True
+
+    def get_user_strava_credentials(self, user_id: int) -> Optional[tuple]:
+        """
+        Получить токены Strava пользователя
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Tuple (access_token, refresh_token, expires_at) или None
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+
+            if not user or not user.strava_refresh_token:
+                return None
+
+            return (user.strava_access_token, user.strava_refresh_token, user.strava_token_expires)
+
+    def save_user_google_credentials(self, user_id: int, refresh_token: str) -> bool:
+        """
+        Сохранить refresh token Google для пользователя
+
+        Args:
+            user_id: ID пользователя
+            refresh_token: Refresh token
+
+        Returns:
+            True если успешно
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return False
+
+            user.google_refresh_token = refresh_token
+
+            logger.info(f"Сохранён Google refresh token для пользователя {user_id}")
+            return True
+
+    def get_user_google_credentials(self, user_id: int) -> Optional[str]:
+        """
+        Получить Google refresh token пользователя
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Refresh token или None
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+
+            if not user or not user.google_refresh_token:
+                return None
+
+            return user.google_refresh_token
 
 
 # Глобальный экземпляр БД

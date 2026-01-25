@@ -60,10 +60,12 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("plan", self.plan))
         self.app.add_handler(CommandHandler("calendar", self.calendar))
         self.app.add_handler(CommandHandler("skip", self.skip_training))
+        self.app.add_handler(CommandHandler("set_google_token", self.set_google_token))
         self.app.add_handler(garmin_registration_handler)
         self.app.add_handler(plan_creation_handler)
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_google_calendar_setup, pattern="^setup_google_calendar$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
         # Debug: catch-all handler для неперехваченных callbacks
         self.app.add_handler(CallbackQueryHandler(self.debug_callback_handler))
@@ -122,7 +124,10 @@ class TrainingBot:
                 InlineKeyboardButton("📅 План", callback_data="quick_plan")
             ],
             [
-                InlineKeyboardButton("🔄 Синхронизация", callback_data="quick_sync"),
+                InlineKeyboardButton("📈 Графики", callback_data="quick_graph"),
+                InlineKeyboardButton("🔄 Синхронизация", callback_data="quick_sync")
+            ],
+            [
                 InlineKeyboardButton("📲 Календарь", callback_data="quick_calendar")
             ]
         ]
@@ -564,13 +569,23 @@ class TrainingBot:
             user_scheduler.start(user.id, telegram_id)
             self.user_schedulers[user.id] = user_scheduler
 
+        # Предлагаем подключить Google Calendar
+        keyboard = [
+            [InlineKeyboardButton("📅 Подключить Google Calendar", callback_data="setup_google_calendar")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
         await update.message.reply_text(
-            "🎉 Всё готово!\n\n"
+            "🎉 Регистрация Garmin завершена!\n\n"
+            "**Хочешь автоматическую синхронизацию с Google Calendar?**\n\n"
+            "Бот будет добавлять тренировки в твой календарь и присылать напоминания.\n\n"
             "Команды:\n"
-            "/sync — Синхронизация с Garmin (вручную)\n"
-            "/stats — Статистика за неделю/месяц\n"
-            "/plan — План на неделю\n"
-            "/help — Помощь"
+            "/sync — Синхронизация с Garmin\n"
+            "/stats — Статистика\n"
+            "/plan — План тренировок\n"
+            "/help — Помощь",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
 
         logger.info(f"Пользователь {telegram_id} завершил регистрацию Garmin")
@@ -597,6 +612,75 @@ class TrainingBot:
         )
 
         logger.info(f"Пользователь {update.effective_user.id} запросил регистрацию Garmin")
+
+    async def handle_google_calendar_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка кнопки подключения Google Calendar"""
+        query = update.callback_query
+        await query.answer()
+
+        await query.edit_message_text(
+            "📅 **Подключение Google Calendar**\n\n"
+            "Для синхронизации тренировок с твоим календарём:\n\n"
+            "**1. Локально на компьютере:**\n"
+            "```\ncd bot_trainer\npython -m scripts.google_auth\n```\n\n"
+            "**2. Авторизуйся** в браузере через Google\n\n"
+            "**3. Скопируй refresh_token** и отправь команду:\n"
+            "`/set_google_token <твой_токен>`\n\n"
+            "После этого бот будет автоматически добавлять тренировки в Google Calendar "
+            "и Calendar будет присылать напоминания!",
+            parse_mode='Markdown'
+        )
+
+        logger.info(f"Пользователь {update.effective_user.id} запросил настройку Google Calendar")
+
+    async def set_google_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /set_google_token - сохранение Google refresh token"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Получаем токен из аргументов
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Укажи refresh_token:\n"
+                "`/set_google_token <твой_токен>`",
+                parse_mode='Markdown'
+            )
+            return
+
+        refresh_token = context.args[0]
+
+        # Сохраняем токен
+        success = db.save_user_google_credentials(user.id, refresh_token)
+
+        if success:
+            # Удаляем сообщение с токеном для безопасности
+            try:
+                await update.message.delete()
+            except:
+                pass
+
+            # Пробуем синхронизировать
+            try:
+                from ..integrations.google_calendar_api import google_calendar_api
+                synced = google_calendar_api.sync_training_plan(user.id)
+
+                await update.message.reply_text(
+                    f"✅ Google Calendar подключён!\n\n"
+                    f"Синхронизировано {synced} тренировок.\n\n"
+                    "Теперь тренировки будут автоматически добавляться в твой календарь "
+                    "с напоминаниями за 1 час и 15 минут."
+                )
+            except Exception as e:
+                logger.error(f"Ошибка синхронизации с Google Calendar: {e}")
+                await update.message.reply_text(
+                    "✅ Токен сохранён!\n\n"
+                    "⚠️ Не удалось выполнить первую синхронизацию. "
+                    "Проверь токен и попробуй /calendar"
+                )
+        else:
+            await update.message.reply_text("❌ Ошибка сохранения токена. Попробуй позже.")
+
+        logger.info(f"Пользователь {telegram_id} настроил Google Calendar")
 
     # === Внутренние методы для quick actions ===
     # Эти методы принимают telegram_id и message напрямую,
@@ -756,6 +840,64 @@ class TrainingBot:
             logger.error(f"Ошибка генерации ICS для {telegram_id}: {e}")
             await message.reply_text(f"❌ Ошибка: {e}")
 
+    async def _handle_graph(self, telegram_id: int, message):
+        """Внутренняя логика графиков"""
+        user = db.get_or_create_user(telegram_id)
+
+        await message.reply_text("📈 Генерирую графики...")
+
+        calculator = StatsCalculator(user.id)
+
+        # Генерируем графики
+        charts_sent = 0
+
+        # 1. Объём по неделям
+        weekly_chart = calculator.generate_weekly_chart()
+        if weekly_chart:
+            try:
+                with open(weekly_chart, 'rb') as f:
+                    await message.reply_photo(
+                        photo=f,
+                        caption="📊 Объём тренировок по неделям"
+                    )
+                charts_sent += 1
+            except Exception as e:
+                logger.error(f"Ошибка отправки weekly chart: {e}")
+
+        # 2. Распределение по зонам пульса
+        hr_chart = calculator.generate_hr_zones_chart()
+        if hr_chart:
+            try:
+                with open(hr_chart, 'rb') as f:
+                    await message.reply_photo(
+                        photo=f,
+                        caption="💓 Распределение по пульсовым зонам (месяц)"
+                    )
+                charts_sent += 1
+            except Exception as e:
+                logger.error(f"Ошибка отправки HR chart: {e}")
+
+        # 3. Прогресс
+        progress_chart = calculator.generate_progress_chart()
+        if progress_chart:
+            try:
+                with open(progress_chart, 'rb') as f:
+                    await message.reply_photo(
+                        photo=f,
+                        caption="📈 Прогресс тренировок"
+                    )
+                charts_sent += 1
+            except Exception as e:
+                logger.error(f"Ошибка отправки progress chart: {e}")
+
+        if charts_sent == 0:
+            await message.reply_text(
+                "📊 Недостаточно данных для графиков.\n\n"
+                "Нужно минимум несколько тренировок за последние недели."
+            )
+        else:
+            logger.info(f"Отправлено {charts_sent} графиков пользователю {telegram_id}")
+
     async def handle_quick_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка quick action кнопок"""
         query = update.callback_query
@@ -774,6 +916,8 @@ class TrainingBot:
                 await self._handle_sync(update.effective_user.id, message, context)
             elif action == 'calendar':
                 await self._handle_calendar(update.effective_user.id, message)
+            elif action == 'graph':
+                await self._handle_graph(update.effective_user.id, message)
             logger.info(f"✅ Quick action '{action}' выполнен для user={update.effective_user.id}")
         except Exception as e:
             logger.error(f"❌ ОШИБКА в quick action '{action}': {e}")
