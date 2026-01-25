@@ -770,6 +770,7 @@ class TrainingBot:
                 "(например: 10 или 50):"
             )
             context.user_data['awaiting_custom_distance'] = True
+            logger.info(f"Установлен флаг awaiting_custom_distance для user={telegram_id}")
 
         elif race_type == "trail":
             await query.edit_message_text(
@@ -777,6 +778,7 @@ class TrainingBot:
                 "(например: 30 или 100):"
             )
             context.user_data['awaiting_trail_distance'] = True
+            logger.info(f"Установлен флаг awaiting_trail_distance для user={telegram_id}")
 
         else:
             logger.warning(f"⚠️ Неизвестный race_type: {race_type} от user={telegram_id}")
@@ -790,7 +792,9 @@ class TrainingBot:
 
     async def _show_days_selection(self, query=None, message=None, context: ContextTypes.DEFAULT_TYPE = None):
         """Показать выбор дней недели"""
-        context.user_data['selected_days'] = []
+        # Инициализируем только если еще не инициализировано
+        if 'selected_days' not in context.user_data:
+            context.user_data['selected_days'] = []
 
         keyboard = [
             [
@@ -1181,35 +1185,41 @@ class TrainingBot:
 
         # === ОНБОРДИНГ: ввод кастомной дистанции (шоссе) ===
         if context.user_data.get('awaiting_custom_distance'):
+            logger.info(f"Обработка кастомной дистанции от user={telegram_id}: '{message_text}'")
             try:
                 distance_km = int(message_text)
                 if distance_km < 1 or distance_km > 500:
-                    raise ValueError()
+                    raise ValueError(f"Дистанция вне диапазона: {distance_km}")
 
                 db.save_user_goal(user.id, goal_distance_km=distance_km)
                 context.user_data['awaiting_custom_distance'] = False
+                logger.info(f"Сохранена кастомная дистанция {distance_km} км для user={telegram_id}")
 
                 await update.message.reply_text(f"🏁 Готовимся к {distance_km} км!")
                 await self._show_days_selection(message=update.message, context=context)
                 return
-            except:
+            except ValueError as e:
+                logger.warning(f"Некорректная дистанция от user={telegram_id}: {e}")
                 await update.message.reply_text("❌ Пожалуйста, введи число\n(например: 10, 21, 42)")
                 return
 
         # === ОНБОРДИНГ: ввод дистанции трейла ===
         if context.user_data.get('awaiting_trail_distance'):
+            logger.info(f"Обработка дистанции трейла от user={telegram_id}: '{message_text}'")
             try:
                 distance_km = int(message_text)
                 if distance_km < 1 or distance_km > 500:
-                    raise ValueError()
+                    raise ValueError(f"Дистанция вне диапазона: {distance_km}")
 
                 db.save_user_goal(user.id, goal_distance_km=distance_km, goal_type="trail")
                 context.user_data['awaiting_trail_distance'] = False
+                logger.info(f"Сохранена дистанция трейла {distance_km} км для user={telegram_id}")
 
                 await update.message.reply_text(f"⛰ Готовимся к трейлу {distance_km} км!")
                 await self._show_days_selection(message=update.message, context=context)
                 return
-            except:
+            except ValueError as e:
+                logger.warning(f"Некорректная дистанция трейла от user={telegram_id}: {e}")
                 await update.message.reply_text("❌ Пожалуйста, введи число\n(например: 30, 50, 100)")
                 return
 

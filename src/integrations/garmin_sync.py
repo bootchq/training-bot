@@ -70,14 +70,15 @@ class GarminSync:
             if not activities or not isinstance(activities, list):
                 return []
 
-            # Фильтруем только беговые и силовые
+            # Фильтруем только беговые и кардио
             running_types = ['running', 'trail_running', 'treadmill_running']
-            strength_types = ['strength_training', 'cardio_training']
+            cardio_types = ['cardio_training']
+            allowed_types = running_types + cardio_types
 
             filtered = []
             for activity in activities:
                 activity_type = activity.get('activityType', {}).get('typeKey', '').lower()
-                if any(rt in activity_type for rt in running_types + strength_types):
+                if activity_type in allowed_types:
                     # Получаем детальные данные (включая зоны пульса)
                     activity_id = activity.get('activityId')
                     if activity_id:
