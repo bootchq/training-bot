@@ -25,10 +25,10 @@ async def test_telegram_web_bot():
     async with async_playwright() as p:
         print("\n🚀 Запуск браузера Chromium...")
 
-        # Запускаем браузер в НЕ headless режиме, чтобы видеть что происходит
+        # Запускаем браузер в headless режиме (без окна, но работает автоматически)
         browser = await p.chromium.launch(
-            headless=False,  # Показываем браузер
-            slow_mo=1000  # Замедляем действия для наглядности
+            headless=True,  # Без визуального окна (для совместимости с окружением)
+            slow_mo=500  # Немного замедляем действия
         )
 
         # Создаём контекст с сохранением сессии

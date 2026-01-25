@@ -13,6 +13,7 @@ from ..integrations.calendar_sync import calendar_sync
 from ..core.scheduler import TrainingScheduler
 from ..core.stats_calculator import StatsCalculator
 from ..core.wellness_survey import WellnessSurvey
+from ..core.plan_adapter import PlanAdapter
 
 # Состояния для ConversationHandler
 GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
@@ -58,11 +59,14 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("stats", self.stats))
         self.app.add_handler(CommandHandler("plan", self.plan))
         self.app.add_handler(CommandHandler("calendar", self.calendar))
+        self.app.add_handler(CommandHandler("skip", self.skip_training))
         self.app.add_handler(garmin_registration_handler)
         self.app.add_handler(plan_creation_handler)
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
+        # Debug: catch-all handler для неперехваченных callbacks
+        self.app.add_handler(CallbackQueryHandler(self.debug_callback_handler))
         logger.info("Обработчики команд настроены")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -137,13 +141,16 @@ class TrainingBot:
 /plan — План тренировок на текущую неделю
 /stats — Статистика за неделю
 /stats month — Статистика за месяц
-/calendar — Скачать план в формате ICS для импорта в календарь
+/calendar — Скачать план в ICS для календаря
+/skip — Пропустить тренировку (сегодня)
+/skip 25.01 — Пропустить тренировку на дату
 
 ✅ Реализовано:
-• Автоматическая синхронизация Garmin (00:00)
+• Автоматическая синхронизация Garmin
 • Адаптивный план тренировок
 • Вечерний опрос самочувствия
-• Экспорт плана в календарь (ICS файл)
+• Экспорт плана в календарь
+• Пропуск тренировок с адаптацией
 
 🤖 В разработке:
 • AI-консультант с советами
@@ -357,6 +364,69 @@ class TrainingBot:
                 "Попробуй позже или создай план заново командой /plan"
             )
 
+    async def skip_training(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /skip - пропустить тренировку сегодня или указанную дату"""
+        from datetime import date, datetime
+
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Определяем дату пропуска
+        args = context.args if context.args else []
+
+        if args:
+            # Пользователь указал дату: /skip 25.01 или /skip 25.01.2026
+            try:
+                date_str = args[0]
+                if len(date_str.split('.')) == 2:
+                    # Формат ДД.ММ - добавляем текущий год
+                    skip_date = datetime.strptime(f"{date_str}.{date.today().year}", "%d.%m.%Y").date()
+                else:
+                    # Формат ДД.ММ.ГГГГ
+                    skip_date = datetime.strptime(date_str, "%d.%m.%Y").date()
+            except ValueError:
+                await update.message.reply_text(
+                    "❌ Неверный формат даты.\n\n"
+                    "Используй: `/skip` (сегодня) или `/skip 25.01`",
+                    parse_mode='Markdown'
+                )
+                return
+        else:
+            # Без аргументов - пропускаем сегодня
+            skip_date = date.today()
+
+        # Проверяем есть ли план на эту дату
+        plan = db.get_plan_for_date(user.id, skip_date)
+
+        if not plan:
+            await update.message.reply_text(
+                f"ℹ️ На {skip_date.strftime('%d.%m.%Y')} тренировка не запланирована."
+            )
+            return
+
+        # Адаптируем план
+        adapter = PlanAdapter(user.id)
+        changes = adapter.adapt_on_skip(skip_date)
+
+        # Формируем ответ
+        day_name = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][skip_date.weekday()]
+        response = f"⏭️ **Пропуск тренировки: {day_name} {skip_date.strftime('%d.%m')}**\n\n"
+        response += f"Тренировка: {plan.type}, {plan.duration_min} мин\n\n"
+
+        if changes:
+            response += "📊 **Адаптация плана:**\n"
+            for change in changes:
+                response += f"• {change}\n"
+        else:
+            response += (
+                "✅ План не меняется (best practice).\n\n"
+                "1-2 пропуска не критичны — продолжай тренировки по плану.\n"
+                "При 3+ пропусках подряд план будет адаптирован."
+            )
+
+        await update.message.reply_text(response, parse_mode='Markdown')
+        logger.info(f"Пользователь {telegram_id} пропустил тренировку {skip_date}")
+
     async def handle_survey_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка нажатия кнопок опроса самочувствия"""
         from datetime import date, timedelta
@@ -565,6 +635,12 @@ class TrainingBot:
             update.message = original_message
 
         logger.info(f"Пользователь {update.effective_user.id} использовал quick action: {action}")
+
+    async def debug_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Debug: ловит все неперехваченные callbacks"""
+        query = update.callback_query
+        logger.warning(f"⚠️ НЕПЕРЕХВАЧЕННЫЙ CALLBACK: user={update.effective_user.id}, data='{query.data}'")
+        await query.answer("Debug: этот callback не обработан")
 
     async def ask_plan_days(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Начало создания плана - выбор дней недели"""
