@@ -25,6 +25,8 @@ class User(Base):
     strava_token_expires = Column(Integer, nullable=True)  # Unix timestamp
     # Google Calendar OAuth
     google_refresh_token = Column(String, nullable=True)
+    # Токен для публичной ICS подписки
+    calendar_token = Column(String, nullable=True, unique=True, index=True)
     # Цель и настройки тренировок
     goal_type = Column(String, nullable=True)  # race / weight_loss / endurance
     goal_distance_km = Column(Integer, nullable=True)  # для забега
@@ -175,6 +177,12 @@ class Database:
             if 'google_refresh_token' not in columns:
                 logger.info("➕ Добавляю поле google_refresh_token в таблицу users")
                 cursor.execute("ALTER TABLE users ADD COLUMN google_refresh_token VARCHAR")
+                needs_migration = True
+
+            # Токен для ICS подписки
+            if 'calendar_token' not in columns:
+                logger.info("➕ Добавляю поле calendar_token в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN calendar_token VARCHAR")
                 needs_migration = True
 
             # Поля для цели и настроек тренировок
@@ -639,6 +647,51 @@ class Database:
                 'training_time': user.training_time,
                 'onboarding_completed': user.onboarding_completed
             }
+
+    def get_or_create_calendar_token(self, user_id: int) -> str:
+        """
+        Получить или создать токен для ICS подписки
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Уникальный токен для URL
+        """
+        import secrets
+
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return None
+
+            if not user.calendar_token:
+                # Генерируем уникальный токен (16 байт = 32 hex символа)
+                user.calendar_token = secrets.token_hex(16)
+                logger.info(f"Создан calendar_token для user_id={user_id}")
+
+            return user.calendar_token
+
+    def get_user_by_calendar_token(self, token: str) -> Optional[User]:
+        """
+        Найти пользователя по токену календаря
+
+        Args:
+            token: Токен из URL
+
+        Returns:
+            User или None
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(calendar_token=token).first()
+            if user:
+                # Возвращаем копию данных
+                return User(
+                    id=user.id,
+                    telegram_id=user.telegram_id,
+                    calendar_token=user.calendar_token
+                )
+            return None
 
     def reset_user(self, telegram_id: int) -> bool:
         """

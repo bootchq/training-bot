@@ -624,26 +624,45 @@ class TrainingBot:
         logger.info(f"Пользователь {update.effective_user.id} запросил регистрацию Garmin")
 
     async def handle_google_calendar_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка кнопки подключения Google Calendar"""
+        """Обработка кнопки подключения календаря — подписка по URL"""
         query = update.callback_query
-        logger.info(f"🔵 handle_google_calendar_setup: user={update.effective_user.id}")
+        telegram_id = update.effective_user.id
+        logger.info(f"🔵 handle_google_calendar_setup: user={telegram_id}")
 
-        # Сразу отвечаем на callback чтобы убрать "loading"
-        await query.answer("Настройка Google Calendar")
+        await query.answer("Генерирую ссылку...")
 
-        # Отправляем новое сообщение (надёжнее чем edit)
+        # Получаем пользователя и генерируем токен
+        user = db.get_or_create_user(telegram_id)
+        token = db.get_or_create_calendar_token(user.id)
+
+        # Формируем URL (Railway domain или localhost для теста)
+        import os
+        railway_domain = os.getenv('RAILWAY_PUBLIC_DOMAIN')
+        if railway_domain:
+            base_url = f"https://{railway_domain}"
+        else:
+            base_url = "https://training-bot-production.up.railway.app"  # fallback
+
+        calendar_url = f"{base_url}/calendar/{token}.ics"
+
+        # Отправляем инструкцию
         await query.message.reply_text(
-            "📅 Подключение Google Calendar\n\n"
-            "Для синхронизации тренировок с календарём:\n\n"
-            "1. На компьютере запусти:\n"
-            "   cd bot_trainer && python -m scripts.google_auth\n\n"
-            "2. Авторизуйся в браузере через Google\n\n"
-            "3. Скопируй refresh_token и отправь:\n"
-            "   /set_google_token ТВОЙ_ТОКЕН\n\n"
-            "После этого тренировки будут автоматически в календаре!"
+            "📅 Подписка на календарь тренировок\n\n"
+            "Твоя персональная ссылка:\n"
+            f"`{calendar_url}`\n\n"
+            "**Как добавить в iPhone:**\n"
+            "1. Скопируй ссылку выше\n"
+            "2. Настройки → Календарь → Учётные записи\n"
+            "3. Добавить → Подписка на календарь\n"
+            "4. Вставь ссылку\n\n"
+            "**Как добавить в Google Calendar:**\n"
+            "1. calendar.google.com → Другие календари → +\n"
+            "2. По URL → Вставь ссылку\n\n"
+            "Календарь будет автоматически обновляться!",
+            parse_mode='Markdown'
         )
 
-        logger.info(f"✅ Google Calendar инструкция отправлена user={update.effective_user.id}")
+        logger.info(f"✅ Calendar URL отправлен user={telegram_id}")
 
     async def set_google_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /set_google_token - сохранение Google refresh token"""
