@@ -621,22 +621,31 @@ class TrainingBot:
     async def handle_google_calendar_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка кнопки подключения Google Calendar"""
         query = update.callback_query
-        await query.answer()
+        logger.info(f"🔵 handle_google_calendar_setup вызван: user={update.effective_user.id}, data={query.data}")
 
-        await query.edit_message_text(
-            "📅 **Подключение Google Calendar**\n\n"
-            "Для синхронизации тренировок с твоим календарём:\n\n"
-            "**1. Локально на компьютере:**\n"
-            "```\ncd bot_trainer\npython -m scripts.google_auth\n```\n\n"
-            "**2. Авторизуйся** в браузере через Google\n\n"
-            "**3. Скопируй refresh_token** и отправь команду:\n"
-            "`/set_google_token <твой_токен>`\n\n"
-            "После этого бот будет автоматически добавлять тренировки в Google Calendar "
-            "и Calendar будет присылать напоминания!",
-            parse_mode='Markdown'
-        )
+        try:
+            await query.answer()
 
-        logger.info(f"Пользователь {update.effective_user.id} запросил настройку Google Calendar")
+            await query.edit_message_text(
+                "📅 Подключение Google Calendar\n\n"
+                "Для синхронизации тренировок с твоим календарём:\n\n"
+                "1. Локально на компьютере:\n"
+                "cd bot_trainer\n"
+                "python -m scripts.google_auth\n\n"
+                "2. Авторизуйся в браузере через Google\n\n"
+                "3. Скопируй refresh_token и отправь команду:\n"
+                "/set_google_token <твой_токен>\n\n"
+                "После этого бот будет автоматически добавлять тренировки в Google Calendar "
+                "и Calendar будет присылать напоминания!"
+            )
+
+            logger.info(f"✅ Google Calendar setup показан для user={update.effective_user.id}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка в handle_google_calendar_setup: {e}", exc_info=True)
+            try:
+                await query.message.reply_text(f"Ошибка: {e}")
+            except:
+                pass
 
     async def set_google_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /set_google_token - сохранение Google refresh token"""
