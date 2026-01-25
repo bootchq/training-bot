@@ -248,6 +248,35 @@ class Database:
             session.expunge(user)
             return user
 
+    def get_user_by_id(self, user_id: int) -> Optional[User]:
+        """
+        Получить пользователя по ID
+
+        Args:
+            user_id: ID пользователя в БД
+
+        Returns:
+            Объект пользователя или None
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+            if user:
+                session.expunge(user)
+            return user
+
+    def get_all_onboarded_users(self) -> List[User]:
+        """
+        Получить всех пользователей с завершенным онбордингом
+
+        Returns:
+            Список пользователей
+        """
+        with self.get_session() as session:
+            users = session.query(User).filter_by(onboarding_completed=True).all()
+            for user in users:
+                session.expunge(user)
+            return users
+
     def load_training_plan(self, user_id: int, trainings: List[dict]) -> int:
         """
         Загрузка плана тренировок в БД

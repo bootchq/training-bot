@@ -14,6 +14,7 @@ from ..core.scheduler import TrainingScheduler
 from ..core.stats_calculator import StatsCalculator
 from ..core.wellness_survey import WellnessSurvey
 from ..core.plan_adapter import PlanAdapter
+from ..core.reminders import init_reminder_scheduler, get_reminder_scheduler
 
 # Состояния для ConversationHandler
 GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
@@ -29,6 +30,7 @@ class TrainingBot:
         self.app = Application.builder().token(self.token).build()
         self._setup_handlers()
         self.user_schedulers = {}  # Словарь {user_id: scheduler}
+        self.reminder_scheduler = None  # Будет инициализирован в run()
         logger.info("Бот инициализирован")
 
     def _setup_handlers(self):
@@ -85,6 +87,20 @@ class TrainingBot:
         # AI-чат: обработка текстовых сообщений (после всех команд и ConversationHandlers)
         self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_ai_chat))
         logger.info("Обработчики команд настроены")
+
+    async def send_notification_message(self, telegram_id: int, message: str):
+        """
+        Отправить уведомление пользователю
+
+        Args:
+            telegram_id: Telegram ID пользователя
+            message: Текст сообщения
+        """
+        try:
+            await self.app.bot.send_message(chat_id=telegram_id, text=message)
+            logger.info(f"✉️ Уведомление отправлено telegram_id={telegram_id}")
+        except Exception as e:
+            logger.error(f"❌ Ошибка отправки уведомления telegram_id={telegram_id}: {e}")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /start"""
@@ -1235,6 +1251,12 @@ class TrainingBot:
             # Завершаем онбординг
             db.save_user_goal(user.id, goal_type=goal_type, onboarding_completed=True)
 
+            # Настраиваем напоминания
+            reminder_scheduler = get_reminder_scheduler()
+            if reminder_scheduler:
+                reminder_scheduler.schedule_user_reminders(user.id)
+                logger.info(f"🔔 Напоминания настроены для user={user.id}")
+
             await update.message.reply_text(
                 "🎉 Настройка завершена!\n\n"
                 "Теперь бот будет:\n"
@@ -1500,6 +1522,9 @@ class TrainingBot:
             # Регистрируем команды при запуске
             async def post_init(app):
                 await self.register_commands()
+                # Инициализируем планировщик напоминаний
+                self.reminder_scheduler = init_reminder_scheduler(self.send_notification_message)
+                logger.info("✅ Планировщик напоминаний инициализирован")
 
             self.app.post_init = post_init
 
@@ -1516,4 +1541,9 @@ class TrainingBot:
                 logger.info(f"Scheduler остановлен для пользователя {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка остановки scheduler для {user_id}: {e}")
+
+        # Останавливаем планировщик напоминаний
+        if self.reminder_scheduler:
+            self.reminder_scheduler.shutdown()
+
         logger.info("⏹️  Бот остановлен")
