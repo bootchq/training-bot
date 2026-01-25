@@ -1045,11 +1045,21 @@ class TrainingBot:
             telegram_id = update.effective_user.id
             user = db.get_or_create_user(telegram_id)
 
+            # Останавливаем user scheduler если есть
+            if user.id in self.user_schedulers:
+                try:
+                    self.user_schedulers[user.id].stop()
+                    del self.user_schedulers[user.id]
+                    logger.info(f"Остановлен scheduler для user={user.id}")
+                except Exception as e:
+                    logger.error(f"Ошибка остановки scheduler для user={user.id}: {e}")
+
             # Удаляем напоминания
             reminder_scheduler = get_reminder_scheduler()
             if reminder_scheduler:
-                reminder_scheduler._remove_user_reminders(user.id)
+                reminder_scheduler.remove_user_reminders(user.id)
 
+            # Сбрасываем данные в БД
             success = db.reset_user(telegram_id)
 
             if success:
@@ -1057,7 +1067,7 @@ class TrainingBot:
                     "✅ Данные сброшены.\n\n"
                     "Используй /start для повторной регистрации."
                 )
-                logger.info(f"Пользователь {telegram_id} сбросил данные")
+                logger.info(f"Пользователь {telegram_id} полностью сбросил данные")
             else:
                 await query.edit_message_text("❌ Ошибка сброса. Попробуй позже.")
         else:

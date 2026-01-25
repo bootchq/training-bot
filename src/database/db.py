@@ -779,8 +779,12 @@ class Database:
             if not user:
                 return False
 
-            # Удаляем персональные рекорды
-            session.query(PersonalRecord).filter_by(user_id=user.id).delete()
+            # Удаляем все связанные данные
+            deleted_trainings = session.query(Training).filter_by(user_id=user.id).delete()
+            deleted_plans = session.query(TrainingPlan).filter_by(user_id=user.id).delete()
+            deleted_wellness = session.query(WellnessSurvey).filter_by(user_id=user.id).delete()
+            deleted_goals = session.query(Goal).filter_by(user_id=user.id).delete()
+            deleted_records = session.query(PersonalRecord).filter_by(user_id=user.id).delete()
 
             # Сбрасываем всё кроме telegram_id
             user.garmin_email = None
@@ -789,6 +793,7 @@ class Database:
             user.strava_refresh_token = None
             user.strava_token_expires = None
             user.google_refresh_token = None
+            user.calendar_token = None
             user.goal_type = None
             user.goal_distance_km = None
             user.goal_date = None
@@ -798,7 +803,11 @@ class Database:
             user.training_time = None
             user.onboarding_completed = False
 
-            logger.info(f"Пользователь {telegram_id} сброшен")
+            logger.info(
+                f"Пользователь {telegram_id} полностью сброшен: "
+                f"trainings={deleted_trainings}, plans={deleted_plans}, "
+                f"wellness={deleted_wellness}, goals={deleted_goals}, records={deleted_records}"
+            )
             return True
 
 

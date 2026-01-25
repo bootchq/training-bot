@@ -191,13 +191,17 @@ class ReminderScheduler:
         loop.create_task(self.send_message(telegram_id, message))
         logger.info(f"📩 Отправлено сообщение о пропуске тренировки telegram_id={telegram_id}")
 
-    def _remove_user_reminders(self, user_id: int):
-        """Удалить все напоминания пользователя"""
+    def remove_user_reminders(self, user_id: int):
+        """Удалить все напоминания пользователя (публичный метод)"""
         jobs = self.scheduler.get_jobs()
+        removed_count = 0
         for job in jobs:
             if job.id.startswith(f"reminder_{user_id}_"):
                 self.scheduler.remove_job(job.id)
                 logger.info(f"🗑 Удалено напоминание: {job.id}")
+                removed_count += 1
+        logger.info(f"Удалено {removed_count} напоминаний для user_id={user_id}")
+        return removed_count
 
     def schedule_weekly_report(self):
         """Настроить еженедельную отправку отчетов"""
