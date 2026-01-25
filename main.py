@@ -11,12 +11,57 @@ from src.utils.logger import logger
 from src.utils.health_check import health_server
 from src.database.init_db import init_database
 from src.bot.telegram_bot import TrainingBot
+from telegram import Update
 
 
-async def run_bot():
-    """Запуск бота в async режиме"""
-    bot = TrainingBot()
-    await bot.run_async()
+async def run_all():
+    """Запуск бота и health check сервера в одном event loop"""
+    bot = None
+    try:
+        # Запускаем health check сервер
+        await health_server.start()
+
+        # Запускаем бота
+        bot = TrainingBot()
+
+        # Регистрируем команды при запуске
+        async def post_init(app):
+            await bot.register_commands()
+            from src.core.reminders import init_reminder_scheduler
+            bot.reminder_scheduler = init_reminder_scheduler(bot.send_notification_message)
+            logger.info("✅ Планировщик напоминаний инициализирован")
+
+        bot.app.post_init = post_init
+
+        logger.info("🚀 Бот запущен")
+
+        # Запускаем polling (блокирующий вызов)
+        await bot.app.initialize()
+        await bot.app.start()
+        await bot.app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+
+        # Держим бота запущенным
+        try:
+            await asyncio.Event().wait()
+        except (KeyboardInterrupt, SystemExit):
+            logger.info("Получен сигнал остановки")
+
+    except Exception as e:
+        logger.error(f"Критическая ошибка: {e}", exc_info=True)
+        raise
+    finally:
+        # Останавливаем бота
+        if bot:
+            try:
+                bot.stop()
+            except Exception as e:
+                logger.error(f"Ошибка остановки бота: {e}")
+
+        # Останавливаем health check сервер
+        try:
+            await health_server.stop()
+        except Exception as e:
+            logger.error(f"Ошибка остановки health check: {e}")
 
 
 def main():
@@ -36,28 +81,12 @@ def main():
 
     # Запуск бота и health check сервера
     try:
-        # Создаём event loop
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-        # Запускаем health check сервер
-        loop.run_until_complete(health_server.start())
-
-        # Запускаем бота (синхронный метод)
-        bot = TrainingBot()
-        bot.run()
-
+        asyncio.run(run_all())
     except KeyboardInterrupt:
         logger.info("Остановка бота (Ctrl+C)")
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}", exc_info=True)
     finally:
-        # Останавливаем health check сервер
-        try:
-            loop.run_until_complete(health_server.stop())
-        except:
-            pass
-
         logger.info("=" * 50)
         logger.info("👋 Бот остановлен")
         logger.info("=" * 50)
