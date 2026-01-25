@@ -24,20 +24,18 @@ async def run_all():
         # Запускаем бота
         bot = TrainingBot()
 
-        # Регистрируем команды при запуске
-        async def post_init(app):
-            await bot.register_commands()
-            from src.core.reminders import init_reminder_scheduler
-            bot.reminder_scheduler = init_reminder_scheduler(bot.send_notification_message)
-            logger.info("✅ Планировщик напоминаний инициализирован")
-
-        bot.app.post_init = post_init
-
         logger.info("🚀 Бот запущен")
 
         # Запускаем polling (блокирующий вызов)
         await bot.app.initialize()
         await bot.app.start()
+
+        # Инициализируем после start
+        await bot.register_commands()
+        from src.core.reminders import init_reminder_scheduler
+        bot.reminder_scheduler = init_reminder_scheduler(bot.send_notification_message)
+        logger.info("✅ Планировщик напоминаний инициализирован")
+
         await bot.app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
 
         # Держим бота запущенным
