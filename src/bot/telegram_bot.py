@@ -61,14 +61,18 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("calendar", self.calendar))
         self.app.add_handler(CommandHandler("skip", self.skip_training))
         self.app.add_handler(CommandHandler("set_google_token", self.set_google_token))
+        self.app.add_handler(CommandHandler("reset", self.reset_user))
         self.app.add_handler(garmin_registration_handler)
         self.app.add_handler(plan_creation_handler)
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_google_calendar_setup, pattern="^setup_google_calendar$"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
         # Debug: catch-all handler для неперехваченных callbacks
         self.app.add_handler(CallbackQueryHandler(self.debug_callback_handler))
+        # AI-чат: обработка текстовых сообщений (после всех команд и ConversationHandlers)
+        self.app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_ai_chat))
         logger.info("Обработчики команд настроены")
 
     async def start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -682,6 +686,47 @@ class TrainingBot:
 
         logger.info(f"Пользователь {telegram_id} настроил Google Calendar")
 
+    async def reset_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /reset - сброс авторизации для повторного онбординга"""
+        telegram_id = update.effective_user.id
+
+        keyboard = [
+            [InlineKeyboardButton("✅ Да, сбросить", callback_data="confirm_reset")],
+            [InlineKeyboardButton("❌ Отмена", callback_data="cancel_reset")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "⚠️ **Сброс данных**\n\n"
+            "Это удалит:\n"
+            "- Привязку Garmin/Strava\n"
+            "- Привязку Google Calendar\n"
+            "- Настройки цели и тренировок\n\n"
+            "Ты уверен?",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
+        )
+
+    async def handle_reset_confirm(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка подтверждения сброса"""
+        query = update.callback_query
+        await query.answer()
+
+        if query.data == "confirm_reset":
+            telegram_id = update.effective_user.id
+            success = db.reset_user(telegram_id)
+
+            if success:
+                await query.edit_message_text(
+                    "✅ Данные сброшены.\n\n"
+                    "Используй /start для повторной регистрации."
+                )
+                logger.info(f"Пользователь {telegram_id} сбросил данные")
+            else:
+                await query.edit_message_text("❌ Ошибка сброса. Попробуй позже.")
+        else:
+            await query.edit_message_text("❌ Сброс отменён.")
+
     # === Внутренние методы для quick actions ===
     # Эти методы принимают telegram_id и message напрямую,
     # что позволяет вызывать их как из команд, так и из callback кнопок
@@ -930,6 +975,45 @@ class TrainingBot:
         query = update.callback_query
         logger.warning(f"⚠️ НЕПЕРЕХВАЧЕННЫЙ CALLBACK: user={update.effective_user.id}, data='{query.data}'")
         await query.answer("Debug: этот callback не обработан")
+
+    async def handle_ai_chat(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка текстовых сообщений через AI-агента"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+        message_text = update.message.text
+
+        logger.info(f"💬 AI-чат от user={telegram_id}: {message_text[:50]}...")
+
+        # Проверяем что пользователь зарегистрирован
+        credentials = db.get_user_garmin_credentials(user.id)
+        strava_creds = db.get_user_strava_credentials(user.id)
+
+        if not credentials and not strava_creds:
+            await update.message.reply_text(
+                "Сначала подключи Garmin или Strava через /start"
+            )
+            return
+
+        # Показываем что печатаем
+        await context.bot.send_chat_action(chat_id=telegram_id, action="typing")
+
+        try:
+            from ..integrations.ai_agent import ai_agent
+
+            response = await ai_agent.chat(user.id, message_text)
+
+            await update.message.reply_text(
+                response,
+                parse_mode='Markdown'
+            )
+
+            logger.info(f"✅ AI ответил user={telegram_id}")
+
+        except Exception as e:
+            logger.error(f"Ошибка AI-чата: {e}")
+            await update.message.reply_text(
+                "Произошла ошибка. Попробуй позже или используй команды (/help)"
+            )
 
     async def ask_plan_days(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Начало создания плана - выбор дней недели"""

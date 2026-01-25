@@ -25,6 +25,15 @@ class User(Base):
     strava_token_expires = Column(Integer, nullable=True)  # Unix timestamp
     # Google Calendar OAuth
     google_refresh_token = Column(String, nullable=True)
+    # Цель и настройки тренировок
+    goal_type = Column(String, nullable=True)  # race / weight_loss / endurance
+    goal_distance_km = Column(Integer, nullable=True)  # для забега
+    goal_date = Column(Date, nullable=True)  # дата забега
+    experience_level = Column(String, nullable=True)  # beginner / intermediate / advanced
+    include_strength = Column(Boolean, nullable=True)  # силовые да/нет
+    training_days = Column(JSON, nullable=True)  # ["mon", "wed", "fri"]
+    training_time = Column(String, nullable=True)  # "07:00" или "evening"
+    onboarding_completed = Column(Boolean, default=False)  # прошёл ли онбординг
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -166,6 +175,19 @@ class Database:
             if 'google_refresh_token' not in columns:
                 logger.info("➕ Добавляю поле google_refresh_token в таблицу users")
                 cursor.execute("ALTER TABLE users ADD COLUMN google_refresh_token VARCHAR")
+                needs_migration = True
+
+            # Поля для цели и настроек тренировок
+            if 'goal_type' not in columns:
+                logger.info("➕ Добавляю поля цели в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN goal_type VARCHAR")
+                cursor.execute("ALTER TABLE users ADD COLUMN goal_distance_km INTEGER")
+                cursor.execute("ALTER TABLE users ADD COLUMN goal_date DATE")
+                cursor.execute("ALTER TABLE users ADD COLUMN experience_level VARCHAR")
+                cursor.execute("ALTER TABLE users ADD COLUMN include_strength BOOLEAN")
+                cursor.execute("ALTER TABLE users ADD COLUMN training_days TEXT")  # JSON хранится как TEXT
+                cursor.execute("ALTER TABLE users ADD COLUMN training_time VARCHAR")
+                cursor.execute("ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN DEFAULT 0")
                 needs_migration = True
 
             if needs_migration:
@@ -547,6 +569,110 @@ class Database:
                 return None
 
             return user.google_refresh_token
+
+    def save_user_goal(self, user_id: int, goal_type: str, goal_distance_km: int = None,
+                       goal_date=None, experience_level: str = None,
+                       include_strength: bool = None, training_days: list = None,
+                       training_time: str = None) -> bool:
+        """
+        Сохранить цель и настройки тренировок пользователя
+
+        Args:
+            user_id: ID пользователя
+            goal_type: Тип цели (race / weight_loss / endurance)
+            goal_distance_km: Дистанция забега в км
+            goal_date: Дата забега
+            experience_level: Уровень опыта
+            include_strength: Включить силовые
+            training_days: Дни тренировок
+            training_time: Время тренировок
+
+        Returns:
+            True если успешно
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return False
+
+            user.goal_type = goal_type
+            if goal_distance_km is not None:
+                user.goal_distance_km = goal_distance_km
+            if goal_date is not None:
+                user.goal_date = goal_date
+            if experience_level is not None:
+                user.experience_level = experience_level
+            if include_strength is not None:
+                user.include_strength = include_strength
+            if training_days is not None:
+                user.training_days = training_days
+            if training_time is not None:
+                user.training_time = training_time
+            user.onboarding_completed = True
+
+            logger.info(f"Сохранены настройки цели для пользователя {user_id}: {goal_type}")
+            return True
+
+    def get_user_settings(self, user_id: int) -> Optional[dict]:
+        """
+        Получить настройки пользователя
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Словарь с настройками или None
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+
+            if not user:
+                return None
+
+            return {
+                'goal_type': user.goal_type,
+                'goal_distance_km': user.goal_distance_km,
+                'goal_date': user.goal_date,
+                'experience_level': user.experience_level,
+                'include_strength': user.include_strength,
+                'training_days': user.training_days,
+                'training_time': user.training_time,
+                'onboarding_completed': user.onboarding_completed
+            }
+
+    def reset_user(self, telegram_id: int) -> bool:
+        """
+        Сбросить данные пользователя для повторного онбординга
+
+        Args:
+            telegram_id: Telegram ID
+
+        Returns:
+            True если успешно
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(telegram_id=telegram_id).first()
+            if not user:
+                return False
+
+            # Сбрасываем всё кроме telegram_id
+            user.garmin_email = None
+            user.garmin_password = None
+            user.strava_access_token = None
+            user.strava_refresh_token = None
+            user.strava_token_expires = None
+            user.google_refresh_token = None
+            user.goal_type = None
+            user.goal_distance_km = None
+            user.goal_date = None
+            user.experience_level = None
+            user.include_strength = None
+            user.training_days = None
+            user.training_time = None
+            user.onboarding_completed = False
+
+            logger.info(f"Пользователь {telegram_id} сброшен")
+            return True
 
 
 # Глобальный экземпляр БД

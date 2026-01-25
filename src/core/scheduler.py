@@ -311,12 +311,12 @@ class TrainingScheduler:
             if not self.telegram_bot:
                 return
 
-            from ..integrations.ai_consultant import ai_consultant
+            from ..integrations.ai_agent import ai_consultant
 
             logger.info("📊 Начало еженедельного AI-анализа")
 
             # Получаем статистику за неделю
-            from ..core.stats import StatsCalculator
+            from ..core.stats_calculator import StatsCalculator
             calculator = StatsCalculator(self.user_id)
             week_stats = calculator.get_week_stats()
 
