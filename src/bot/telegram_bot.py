@@ -729,7 +729,6 @@ class TrainingBot:
             keyboard = [
                 [InlineKeyboardButton("🏃 Полумарафон (21 км)", callback_data="racetype_half")],
                 [InlineKeyboardButton("🏃 Марафон (42 км)", callback_data="racetype_marathon")],
-                [InlineKeyboardButton("📏 Своя дистанция", callback_data="racetype_custom")],
                 [InlineKeyboardButton("⛰ Трейл", callback_data="racetype_trail")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -761,13 +760,6 @@ class TrainingBot:
         elif race_type == "marathon":
             db.save_user_goal(user.id, goal_distance_km=42)
             await self._show_days_selection(query=query, context=context)
-
-        elif race_type == "custom":
-            await query.edit_message_text(
-                "📏 Введи дистанцию забега в км\n"
-                "(например: 10 или 50):"
-            )
-            context.user_data['awaiting_custom_distance'] = True
 
         elif race_type == "trail":
             await query.edit_message_text(
@@ -1168,23 +1160,6 @@ class TrainingBot:
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
         message_text = update.message.text.strip()
-
-        # === ОНБОРДИНГ: ввод кастомной дистанции (шоссе) ===
-        if context.user_data.get('awaiting_custom_distance'):
-            try:
-                distance_km = int(message_text)
-                if distance_km < 1 or distance_km > 500:
-                    raise ValueError()
-
-                db.save_user_goal(user.id, goal_distance_km=distance_km)
-                context.user_data['awaiting_custom_distance'] = False
-
-                await update.message.reply_text(f"🏁 Готовимся к {distance_km} км!")
-                await self._show_days_selection(message=update.message, context=context)
-                return
-            except:
-                await update.message.reply_text("Введи число от 1 до 500:")
-                return
 
         # === ОНБОРДИНГ: ввод дистанции трейла ===
         if context.user_data.get('awaiting_trail_distance'):
