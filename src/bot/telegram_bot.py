@@ -601,6 +601,7 @@ class TrainingBot:
     async def handle_quick_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка quick action кнопок"""
         query = update.callback_query
+        logger.info(f"🔘 QUICK ACTION: user={update.effective_user.id}, data='{query.data}'")
         await query.answer()
 
         # Создаём адаптированный Update с message вместо callback_query
@@ -631,10 +632,14 @@ class TrainingBot:
                 await self.sync(update, context)
             elif action == 'calendar':
                 await self.calendar(update, context)
+            logger.info(f"Пользователь {update.effective_user.id} использовал quick action: {action}")
+        except Exception as e:
+            logger.error(f"❌ ОШИБКА в quick action '{action}': {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            await query.message.reply_text(f"❌ Ошибка: {e}")
         finally:
             update.message = original_message
-
-        logger.info(f"Пользователь {update.effective_user.id} использовал quick action: {action}")
 
     async def debug_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Debug: ловит все неперехваченные callbacks"""
