@@ -1183,7 +1183,7 @@ class TrainingBot:
                 await self._show_days_selection(message=update.message, context=context)
                 return
             except:
-                await update.message.reply_text("Введи число от 1 до 500:")
+                await update.message.reply_text("❌ Пожалуйста, введи число\n(например: 10, 21, 42)")
                 return
 
         # === ОНБОРДИНГ: ввод дистанции трейла ===
@@ -1200,7 +1200,7 @@ class TrainingBot:
                 await self._show_days_selection(message=update.message, context=context)
                 return
             except:
-                await update.message.reply_text("Введи число от 1 до 500:")
+                await update.message.reply_text("❌ Пожалуйста, введи число\n(например: 30, 50, 100)")
                 return
 
         # === ОНБОРДИНГ: ввод времени тренировок ===
