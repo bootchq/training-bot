@@ -1,7 +1,7 @@
 """AI-анализ тренировок с рекомендациями"""
 from typing import Optional
 from ..database.db import Training
-from ..integrations.ai_consultant import AIConsultant
+from ..integrations.ai_agent import AIConsultant
 from ..utils.logger import logger
 
 

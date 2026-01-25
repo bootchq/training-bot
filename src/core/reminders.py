@@ -220,7 +220,7 @@ class ReminderScheduler:
     def _send_weekly_reports(self):
         """Отправить еженедельные отчеты всем пользователям"""
         from ..core.stats_calculator import StatsCalculator
-        from ..integrations.ai_consultant import AIConsultant
+        from ..integrations.ai_agent import AIConsultant
 
         users = db.get_all_onboarded_users()
         ai_consultant = AIConsultant()

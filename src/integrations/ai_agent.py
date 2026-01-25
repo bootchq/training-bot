@@ -352,6 +352,34 @@ ai_agent = AIAgent()
 class AIConsultant:
     """Обёртка для совместимости"""
 
+    def __init__(self):
+        """Инициализация"""
+        self.client = ai_agent.client
+        self.model = ai_agent.model
+
+    def ask(self, prompt: str) -> str:
+        """
+        Синхронный вопрос к AI (без контекста пользователя)
+
+        Args:
+            prompt: Текст вопроса
+
+        Returns:
+            Ответ AI
+        """
+        if not self.client:
+            return "AI-консультант недоступен"
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": prompt}]
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            logger.error(f"Ошибка AI-консультанта: {e}")
+            return f"Ошибка: {e}"
+
     async def get_advice(self, user_id: int, context: str, training_data: dict = None) -> str:
         """Получить совет от AI"""
         return await ai_agent.chat(user_id, context)
