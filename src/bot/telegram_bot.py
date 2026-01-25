@@ -75,6 +75,7 @@ class TrainingBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_days_selection, pattern="^trainday_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_stats_period, pattern="^stats_"))
 
         # ConversationHandlers после standalone handlers
         self.app.add_handler(garmin_registration_handler)
@@ -138,10 +139,7 @@ class TrainingBot:
                 InlineKeyboardButton("📅 План", callback_data="quick_plan")
             ],
             [
-                InlineKeyboardButton("📈 Графики", callback_data="quick_graph"),
-                InlineKeyboardButton("🔄 Синхронизация", callback_data="quick_sync")
-            ],
-            [
+                InlineKeyboardButton("🔄 Синхронизация", callback_data="quick_sync"),
                 InlineKeyboardButton("📲 Календарь", callback_data="quick_calendar")
             ]
         ]
@@ -216,7 +214,7 @@ class TrainingBot:
             )
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Команда /stats - статистика за неделю/месяц"""
+        """Команда /stats - выбор периода статистики"""
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
@@ -231,23 +229,55 @@ class TrainingBot:
             )
             return
 
+        # Показываем кнопки выбора периода
+        keyboard = [
+            [InlineKeyboardButton("📅 За неделю", callback_data="stats_week")],
+            [InlineKeyboardButton("📅 За месяц", callback_data="stats_month")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await update.message.reply_text(
+            "📊 Выбери период для статистики:",
+            reply_markup=reply_markup
+        )
+
+    async def handle_stats_period(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора периода статистики"""
+        query = update.callback_query
+        await query.answer()
+
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
         # Создаём калькулятор
         calculator = StatsCalculator(user.id)
 
-        # Получаем аргумент (week или month)
-        args = context.args
-        period = args[0] if args else 'week'
+        period = query.data.replace("stats_", "")  # week или month
 
-        if period == 'month':
+        if period == "month":
+            # Месяц - общая информация одним сообщением
             stats = calculator.get_month_stats()
-        else:
+            stats_text = calculator.format_month_stats_summary(stats)
+            await query.edit_message_text(stats_text, parse_mode='Markdown')
+            logger.info(f"Пользователь {telegram_id} запросил статистику за месяц")
+
+        else:  # week
+            # Неделя - каждая тренировка отдельным сообщением
             stats = calculator.get_week_stats()
+            messages = calculator.format_week_stats_separate(stats)
 
-        # Форматируем и отправляем
-        stats_text = calculator.format_stats(stats)
-        await update.message.reply_text(stats_text, parse_mode='Markdown')
+            # Удаляем сообщение с кнопками
+            await query.delete_message()
 
-        logger.info(f"Пользователь {telegram_id} запросил статистику за {period}")
+            # Отправляем все сообщения
+            for msg in messages:
+                await context.bot.send_message(
+                    chat_id=telegram_id,
+                    text=msg,
+                    parse_mode='Markdown'
+                )
+
+            logger.info(f"Пользователь {telegram_id} запросил статистику за неделю")
 
     async def plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /plan - показ плана на неделю"""
@@ -1096,64 +1126,6 @@ class TrainingBot:
             logger.error(f"Ошибка генерации ICS для {telegram_id}: {e}")
             await message.reply_text(f"❌ Ошибка: {e}")
 
-    async def _handle_graph(self, telegram_id: int, message):
-        """Внутренняя логика графиков"""
-        user = db.get_or_create_user(telegram_id)
-
-        await message.reply_text("📈 Генерирую графики...")
-
-        calculator = StatsCalculator(user.id)
-
-        # Генерируем графики
-        charts_sent = 0
-
-        # 1. Объём по неделям
-        weekly_chart = calculator.generate_weekly_chart()
-        if weekly_chart:
-            try:
-                with open(weekly_chart, 'rb') as f:
-                    await message.reply_photo(
-                        photo=f,
-                        caption="📊 Объём тренировок по неделям"
-                    )
-                charts_sent += 1
-            except Exception as e:
-                logger.error(f"Ошибка отправки weekly chart: {e}")
-
-        # 2. Распределение по зонам пульса
-        hr_chart = calculator.generate_hr_zones_chart()
-        if hr_chart:
-            try:
-                with open(hr_chart, 'rb') as f:
-                    await message.reply_photo(
-                        photo=f,
-                        caption="💓 Распределение по пульсовым зонам (месяц)"
-                    )
-                charts_sent += 1
-            except Exception as e:
-                logger.error(f"Ошибка отправки HR chart: {e}")
-
-        # 3. Прогресс
-        progress_chart = calculator.generate_progress_chart()
-        if progress_chart:
-            try:
-                with open(progress_chart, 'rb') as f:
-                    await message.reply_photo(
-                        photo=f,
-                        caption="📈 Прогресс тренировок"
-                    )
-                charts_sent += 1
-            except Exception as e:
-                logger.error(f"Ошибка отправки progress chart: {e}")
-
-        if charts_sent == 0:
-            await message.reply_text(
-                "📊 Недостаточно данных для графиков.\n\n"
-                "Нужно минимум несколько тренировок за последние недели."
-            )
-        else:
-            logger.info(f"Отправлено {charts_sent} графиков пользователю {telegram_id}")
-
     async def handle_quick_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка quick action кнопок"""
         query = update.callback_query
@@ -1172,8 +1144,6 @@ class TrainingBot:
                 await self._handle_sync(update.effective_user.id, message, context)
             elif action == 'calendar':
                 await self._handle_calendar(update.effective_user.id, message)
-            elif action == 'graph':
-                await self._handle_graph(update.effective_user.id, message)
             logger.info(f"✅ Quick action '{action}' выполнен для user={update.effective_user.id}")
         except Exception as e:
             logger.error(f"❌ ОШИБКА в quick action '{action}': {e}")
