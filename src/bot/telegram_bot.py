@@ -70,7 +70,9 @@ class TrainingBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_google_calendar_setup, pattern="^setup_google_calendar$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_start_onboarding, pattern="^start_onboarding$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_goal_selection, pattern="^goal_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_race_type_selection, pattern="^racetype_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_distance_selection, pattern="^distance_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_days_selection, pattern="^trainday_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
 
@@ -664,25 +666,24 @@ class TrainingBot:
         logger.info(f"✅ Calendar URL отправлен user={telegram_id}")
 
     async def handle_start_onboarding(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Начало онбординга — выбор цели тренировок"""
+        """Начало онбординга — выбор типа тренировок"""
         query = update.callback_query
         await query.answer()
 
         keyboard = [
             [InlineKeyboardButton("🏁 Подготовка к забегу", callback_data="goal_race")],
-            [InlineKeyboardButton("💪 Выносливость", callback_data="goal_endurance")],
-            [InlineKeyboardButton("🔥 Похудение", callback_data="goal_weight_loss")]
+            [InlineKeyboardButton("🏃 Тренировки для себя", callback_data="goal_fitness")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.message.reply_text(
             "🎯 Какая у тебя цель?\n\n"
-            "Выбери основное направление тренировок:",
+            "Выбери направление:",
             reply_markup=reply_markup
         )
 
     async def handle_goal_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка выбора цели"""
+        """Обработка выбора цели: забег или для себя"""
         query = update.callback_query
         await query.answer()
 
@@ -694,72 +695,158 @@ class TrainingBot:
         db.save_user_goal(user.id, goal_type=goal_type)
 
         if goal_type == "race":
-            # Для забега — спрашиваем дистанцию
+            # Для забега — выбор типа (шоссе/трейл)
             keyboard = [
-                [
-                    InlineKeyboardButton("5 км", callback_data="distance_5"),
-                    InlineKeyboardButton("10 км", callback_data="distance_10")
-                ],
-                [
-                    InlineKeyboardButton("21 км", callback_data="distance_21"),
-                    InlineKeyboardButton("42 км", callback_data="distance_42")
-                ],
-                [InlineKeyboardButton("Другая дистанция", callback_data="distance_custom")]
+                [InlineKeyboardButton("🏃 Полумарафон (21 км)", callback_data="racetype_half")],
+                [InlineKeyboardButton("🏃 Марафон (42 км)", callback_data="racetype_marathon")],
+                [InlineKeyboardButton("📏 Своя дистанция", callback_data="racetype_custom")],
+                [InlineKeyboardButton("⛰ Трейл", callback_data="racetype_trail")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.message.reply_text(
-                "🏁 На какую дистанцию готовишься?",
+                "🏁 Какой тип забега?",
                 reply_markup=reply_markup
             )
 
-        elif goal_type == "weight_loss":
-            # Для похудения — сразу к дням тренировок
-            await query.message.reply_text(
-                "🔥 Отлично! Для похудения важна регулярность.\n\n"
-                "Будем тренироваться в зоне 2 (разговорный темп) с постепенным увеличением объёма.\n\n"
-                "Сколько дней в неделю готов тренироваться?\n"
-                "Напиши число от 2 до 6:"
-            )
-            context.user_data['awaiting_days'] = True
-
-        else:  # endurance
-            # Для выносливости — сразу к дням
-            await query.message.reply_text(
-                "💪 Отлично! Будем развивать выносливость.\n\n"
-                "Сколько дней в неделю готов тренироваться?\n"
-                "Напиши число от 2 до 6:"
-            )
-            context.user_data['awaiting_days'] = True
+        else:  # fitness — тренировки для себя
+            # Сразу к выбору дней
+            await self._show_days_selection(query.message, context)
 
         logger.info(f"User {telegram_id} выбрал цель: {goal_type}")
 
-    async def handle_distance_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка выбора дистанции забега"""
+    async def handle_race_type_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора типа забега"""
         query = update.callback_query
         await query.answer()
 
-        distance_str = query.data.replace("distance_", "")
+        race_type = query.data.replace("racetype_", "")
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
-        if distance_str == "custom":
+        if race_type == "half":
+            db.save_user_goal(user.id, goal_distance_km=21)
+            await self._show_days_selection(query.message, context)
+
+        elif race_type == "marathon":
+            db.save_user_goal(user.id, goal_distance_km=42)
+            await self._show_days_selection(query.message, context)
+
+        elif race_type == "custom":
             await query.message.reply_text(
-                "Напиши дистанцию в км (например: 15 или 100):"
+                "📏 Введи дистанцию забега в км\n"
+                "(например: 10 или 50):"
             )
             context.user_data['awaiting_custom_distance'] = True
-        else:
-            distance_km = int(distance_str)
-            db.save_user_goal(user.id, goal_distance_km=distance_km)
 
+        elif race_type == "trail":
             await query.message.reply_text(
-                f"🏁 Отлично, готовимся к {distance_km} км!\n\n"
-                "Сколько дней в неделю готов тренироваться?\n"
-                "Напиши число от 2 до 6:"
+                "⛰ Введи дистанцию трейла в км\n"
+                "(например: 30 или 100):"
             )
-            context.user_data['awaiting_days'] = True
+            context.user_data['awaiting_trail_distance'] = True
 
-        logger.info(f"User {telegram_id} выбрал дистанцию: {distance_str}")
+        logger.info(f"User {telegram_id} выбрал тип забега: {race_type}")
+
+    async def _show_days_selection(self, message, context: ContextTypes.DEFAULT_TYPE):
+        """Показать выбор дней недели"""
+        context.user_data['selected_days'] = []
+
+        keyboard = [
+            [
+                InlineKeyboardButton("Пн", callback_data="trainday_1"),
+                InlineKeyboardButton("Вт", callback_data="trainday_2"),
+                InlineKeyboardButton("Ср", callback_data="trainday_3"),
+                InlineKeyboardButton("Чт", callback_data="trainday_4")
+            ],
+            [
+                InlineKeyboardButton("Пт", callback_data="trainday_5"),
+                InlineKeyboardButton("Сб", callback_data="trainday_6"),
+                InlineKeyboardButton("Вс", callback_data="trainday_7")
+            ],
+            [InlineKeyboardButton("✅ Готово", callback_data="trainday_done")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await message.reply_text(
+            "📅 Выбери дни для тренировок:\n\n"
+            "(нажми на дни, затем \"Готово\")\n\n"
+            "Выбрано: —",
+            reply_markup=reply_markup
+        )
+
+    async def handle_days_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора дней недели"""
+        query = update.callback_query
+        await query.answer()
+
+        data = query.data.replace("trainday_", "")
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        if data == "done":
+            selected_days = context.user_data.get('selected_days', [])
+
+            if len(selected_days) < 2:
+                await query.answer("Выбери минимум 2 дня", show_alert=True)
+                return
+
+            # Сохраняем дни
+            db.save_user_goal(user.id, training_days=[f"day_{d}" for d in selected_days])
+
+            # Переходим к выбору времени
+            await query.message.reply_text(
+                "⏰ В какое время обычно тренируешься?\n\n"
+                "Напиши время (например: 07:00 или 19:30):"
+            )
+            context.user_data['awaiting_time'] = True
+            return
+
+        # Toggle дня
+        day_num = int(data)
+        selected_days = context.user_data.get('selected_days', [])
+
+        if day_num in selected_days:
+            selected_days.remove(day_num)
+        else:
+            selected_days.append(day_num)
+
+        context.user_data['selected_days'] = selected_days
+
+        # Обновляем кнопки
+        days_names = {1: "Пн", 2: "Вт", 3: "Ср", 4: "Чт", 5: "Пт", 6: "Сб", 7: "Вс"}
+        selected_text = ", ".join([days_names[d] for d in sorted(selected_days)]) or "—"
+
+        keyboard = [
+            [
+                InlineKeyboardButton(f"{'✅' if 1 in selected_days else ''} Пн", callback_data="trainday_1"),
+                InlineKeyboardButton(f"{'✅' if 2 in selected_days else ''} Вт", callback_data="trainday_2"),
+                InlineKeyboardButton(f"{'✅' if 3 in selected_days else ''} Ср", callback_data="trainday_3"),
+                InlineKeyboardButton(f"{'✅' if 4 in selected_days else ''} Чт", callback_data="trainday_4")
+            ],
+            [
+                InlineKeyboardButton(f"{'✅' if 5 in selected_days else ''} Пт", callback_data="trainday_5"),
+                InlineKeyboardButton(f"{'✅' if 6 in selected_days else ''} Сб", callback_data="trainday_6"),
+                InlineKeyboardButton(f"{'✅' if 7 in selected_days else ''} Вс", callback_data="trainday_7")
+            ],
+            [InlineKeyboardButton("✅ Готово", callback_data="trainday_done")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.edit_message_text(
+            f"📅 Выбери дни для тренировок:\n\n"
+            f"(нажми на дни, затем \"Готово\")\n\n"
+            f"Выбрано: {selected_text}",
+            reply_markup=reply_markup
+        )
+
+        logger.info(f"User {telegram_id} toggle день {day_num}, выбрано: {selected_days}")
+
+    async def handle_distance_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Legacy: обработка выбора дистанции (не используется в новом flow)"""
+        query = update.callback_query
+        await query.answer()
+        logger.warning(f"Legacy handle_distance_selection вызван: {query.data}")
 
     async def set_google_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /set_google_token - сохранение Google refresh token"""
@@ -1106,7 +1193,7 @@ class TrainingBot:
         user = db.get_or_create_user(telegram_id)
         message_text = update.message.text.strip()
 
-        # === ОНБОРДИНГ: ввод кастомной дистанции ===
+        # === ОНБОРДИНГ: ввод кастомной дистанции (шоссе) ===
         if context.user_data.get('awaiting_custom_distance'):
             try:
                 distance_km = int(message_text)
@@ -1116,37 +1203,28 @@ class TrainingBot:
                 db.save_user_goal(user.id, goal_distance_km=distance_km)
                 context.user_data['awaiting_custom_distance'] = False
 
-                await update.message.reply_text(
-                    f"🏁 Отлично, готовимся к {distance_km} км!\n\n"
-                    "Сколько дней в неделю готов тренироваться?\n"
-                    "Напиши число от 2 до 6:"
-                )
-                context.user_data['awaiting_days'] = True
+                await update.message.reply_text(f"🏁 Готовимся к {distance_km} км!")
+                await self._show_days_selection(update.message, context)
                 return
             except:
                 await update.message.reply_text("Введи число от 1 до 500:")
                 return
 
-        # === ОНБОРДИНГ: ввод количества дней ===
-        if context.user_data.get('awaiting_days'):
+        # === ОНБОРДИНГ: ввод дистанции трейла ===
+        if context.user_data.get('awaiting_trail_distance'):
             try:
-                days = int(message_text)
-                if days < 2 or days > 6:
+                distance_km = int(message_text)
+                if distance_km < 1 or distance_km > 500:
                     raise ValueError()
 
-                # Сохраняем количество дней (пока просто число)
-                db.save_user_goal(user.id, training_days=[f"day_{i}" for i in range(days)])
-                context.user_data['awaiting_days'] = False
+                db.save_user_goal(user.id, goal_distance_km=distance_km, goal_type="trail")
+                context.user_data['awaiting_trail_distance'] = False
 
-                await update.message.reply_text(
-                    f"✅ Отлично, {days} дней в неделю!\n\n"
-                    "В какое время обычно тренируешься?\n"
-                    "Напиши примерное время (например: 07:00 или 19:30):"
-                )
-                context.user_data['awaiting_time'] = True
+                await update.message.reply_text(f"⛰ Готовимся к трейлу {distance_km} км!")
+                await self._show_days_selection(update.message, context)
                 return
             except:
-                await update.message.reply_text("Введи число от 2 до 6:")
+                await update.message.reply_text("Введи число от 1 до 500:")
                 return
 
         # === ОНБОРДИНГ: ввод времени тренировок ===
