@@ -754,6 +754,8 @@ class TrainingBot:
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
+        logger.info(f"🔘 RACE TYPE CALLBACK: user={telegram_id}, data='{query.data}', parsed='{race_type}'")
+
         if race_type == "half":
             db.save_user_goal(user.id, goal_distance_km=21)
             await self._show_days_selection(query=query, context=context)
@@ -775,6 +777,14 @@ class TrainingBot:
                 "(например: 30 или 100):"
             )
             context.user_data['awaiting_trail_distance'] = True
+
+        else:
+            logger.warning(f"⚠️ Неизвестный race_type: {race_type} от user={telegram_id}")
+            await query.edit_message_text(
+                "❌ Устаревшее сообщение.\n\n"
+                "Пожалуйста, сделай /reset и начни заново."
+            )
+            return
 
         logger.info(f"User {telegram_id} выбрал тип забега: {race_type}")
 
