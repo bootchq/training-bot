@@ -62,13 +62,18 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("skip", self.skip_training))
         self.app.add_handler(CommandHandler("set_google_token", self.set_google_token))
         self.app.add_handler(CommandHandler("reset", self.reset_user))
-        self.app.add_handler(garmin_registration_handler)
-        self.app.add_handler(plan_creation_handler)
+
+        # ВАЖНО: Standalone CallbackQueryHandlers ДО ConversationHandlers
+        # чтобы они не были заблокированы
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_google_calendar_setup, pattern="^setup_google_calendar$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
+
+        # ConversationHandlers после standalone handlers
+        self.app.add_handler(garmin_registration_handler)
+        self.app.add_handler(plan_creation_handler)
         # Debug: catch-all handler для неперехваченных callbacks
         self.app.add_handler(CallbackQueryHandler(self.debug_callback_handler))
         # AI-чат: обработка текстовых сообщений (после всех команд и ConversationHandlers)
@@ -621,31 +626,24 @@ class TrainingBot:
     async def handle_google_calendar_setup(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка кнопки подключения Google Calendar"""
         query = update.callback_query
-        logger.info(f"🔵 handle_google_calendar_setup вызван: user={update.effective_user.id}, data={query.data}")
+        logger.info(f"🔵 handle_google_calendar_setup: user={update.effective_user.id}")
 
-        try:
-            await query.answer()
+        # Сразу отвечаем на callback чтобы убрать "loading"
+        await query.answer("Настройка Google Calendar")
 
-            await query.edit_message_text(
-                "📅 Подключение Google Calendar\n\n"
-                "Для синхронизации тренировок с твоим календарём:\n\n"
-                "1. Локально на компьютере:\n"
-                "cd bot_trainer\n"
-                "python -m scripts.google_auth\n\n"
-                "2. Авторизуйся в браузере через Google\n\n"
-                "3. Скопируй refresh_token и отправь команду:\n"
-                "/set_google_token <твой_токен>\n\n"
-                "После этого бот будет автоматически добавлять тренировки в Google Calendar "
-                "и Calendar будет присылать напоминания!"
-            )
+        # Отправляем новое сообщение (надёжнее чем edit)
+        await query.message.reply_text(
+            "📅 Подключение Google Calendar\n\n"
+            "Для синхронизации тренировок с календарём:\n\n"
+            "1. На компьютере запусти:\n"
+            "   cd bot_trainer && python -m scripts.google_auth\n\n"
+            "2. Авторизуйся в браузере через Google\n\n"
+            "3. Скопируй refresh_token и отправь:\n"
+            "   /set_google_token ТВОЙ_ТОКЕН\n\n"
+            "После этого тренировки будут автоматически в календаре!"
+        )
 
-            logger.info(f"✅ Google Calendar setup показан для user={update.effective_user.id}")
-        except Exception as e:
-            logger.error(f"❌ Ошибка в handle_google_calendar_setup: {e}", exc_info=True)
-            try:
-                await query.message.reply_text(f"Ошибка: {e}")
-            except:
-                pass
+        logger.info(f"✅ Google Calendar инструкция отправлена user={update.effective_user.id}")
 
     async def set_google_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /set_google_token - сохранение Google refresh token"""
