@@ -15,6 +15,7 @@ from ..core.stats_calculator import StatsCalculator
 from ..core.wellness_survey import WellnessSurvey
 from ..core.plan_adapter import PlanAdapter
 from ..core.reminders import init_reminder_scheduler, get_reminder_scheduler
+from ..core.ai_training_analyzer import get_training_analyzer
 
 # Состояния для ConversationHandler
 GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
@@ -220,6 +221,20 @@ class TrainingBot:
 
             if total_count > 0:
                 await update.message.reply_text(f"✅ Загружено {total_count} тренировок за последние 14 дней")
+
+                # AI-анализ последней тренировки
+                latest_training = db.get_latest_training(user.id)
+                if latest_training:
+                    await update.message.reply_text("🤖 Анализирую последнюю тренировку...")
+
+                    # Получаем цель пользователя для контекста
+                    user_goal = db.get_user_settings(user.id)
+
+                    # Запрашиваем AI-анализ
+                    analyzer = get_training_analyzer()
+                    analysis = analyzer.analyze_training(latest_training, user_goal)
+
+                    await update.message.reply_text(f"📊 Анализ тренировки:\n\n{analysis}")
             else:
                 await update.message.reply_text("ℹ️ Новых тренировок за последние 14 дней не найдено")
         except Exception as e:

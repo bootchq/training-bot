@@ -393,6 +393,31 @@ class Database:
 
             return training
 
+    def get_latest_training(self, user_id: int) -> Optional[Training]:
+        """
+        Получить последнюю тренировку пользователя
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Последняя тренировка или None
+        """
+        with self.get_session() as session:
+            training = session.query(Training).filter_by(
+                user_id=user_id,
+                type='actual'
+            ).order_by(Training.date.desc(), Training.id.desc()).first()
+
+            if training:
+                # Загружаем все атрибуты перед отсоединением
+                _ = (training.id, training.date, training.distance_km,
+                     training.duration_min, training.avg_hr, training.hr_zones,
+                     training.avg_pace, training.max_hr, training.elevation_m, training.notes)
+                session.expunge(training)
+
+            return training
+
     def get_plan_for_period(self, user_id: int, start_date, end_date) -> List[TrainingPlan]:
         """
         Получить план за период
