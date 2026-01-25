@@ -68,6 +68,9 @@ class TrainingBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_survey_callback, pattern="^survey_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_no_garmin_account, pattern="^no_garmin_account$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_google_calendar_setup, pattern="^setup_google_calendar$"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_start_onboarding, pattern="^start_onboarding$"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_goal_selection, pattern="^goal_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_distance_selection, pattern="^distance_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
 
@@ -579,21 +582,17 @@ class TrainingBot:
             user_scheduler.start(user.id, telegram_id)
             self.user_schedulers[user.id] = user_scheduler
 
-        # Предлагаем подключить Google Calendar
+        # Предлагаем подключить Google Calendar или перейти к настройке тренировок
         keyboard = [
-            [InlineKeyboardButton("📅 Подключить Google Calendar", callback_data="setup_google_calendar")]
+            [InlineKeyboardButton("📅 Подключить календарь", callback_data="setup_google_calendar")],
+            [InlineKeyboardButton("⏭ Настроить тренировки", callback_data="start_onboarding")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
             "🎉 Регистрация Garmin завершена!\n\n"
-            "**Хочешь автоматическую синхронизацию с Google Calendar?**\n\n"
-            "Бот будет добавлять тренировки в твой календарь и присылать напоминания.\n\n"
-            "Команды:\n"
-            "/sync — Синхронизация с Garmin\n"
-            "/stats — Статистика\n"
-            "/plan — План тренировок\n"
-            "/help — Помощь",
+            "Теперь настроим план тренировок.\n\n"
+            "Хочешь сначала подключить календарь для напоминаний?",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -663,6 +662,104 @@ class TrainingBot:
         )
 
         logger.info(f"✅ Calendar URL отправлен user={telegram_id}")
+
+    async def handle_start_onboarding(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Начало онбординга — выбор цели тренировок"""
+        query = update.callback_query
+        await query.answer()
+
+        keyboard = [
+            [InlineKeyboardButton("🏁 Подготовка к забегу", callback_data="goal_race")],
+            [InlineKeyboardButton("💪 Выносливость", callback_data="goal_endurance")],
+            [InlineKeyboardButton("🔥 Похудение", callback_data="goal_weight_loss")]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
+
+        await query.message.reply_text(
+            "🎯 Какая у тебя цель?\n\n"
+            "Выбери основное направление тренировок:",
+            reply_markup=reply_markup
+        )
+
+    async def handle_goal_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора цели"""
+        query = update.callback_query
+        await query.answer()
+
+        goal_type = query.data.replace("goal_", "")
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Сохраняем цель
+        db.save_user_goal(user.id, goal_type=goal_type)
+
+        if goal_type == "race":
+            # Для забега — спрашиваем дистанцию
+            keyboard = [
+                [
+                    InlineKeyboardButton("5 км", callback_data="distance_5"),
+                    InlineKeyboardButton("10 км", callback_data="distance_10")
+                ],
+                [
+                    InlineKeyboardButton("21 км", callback_data="distance_21"),
+                    InlineKeyboardButton("42 км", callback_data="distance_42")
+                ],
+                [InlineKeyboardButton("Другая дистанция", callback_data="distance_custom")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await query.message.reply_text(
+                "🏁 На какую дистанцию готовишься?",
+                reply_markup=reply_markup
+            )
+
+        elif goal_type == "weight_loss":
+            # Для похудения — сразу к дням тренировок
+            await query.message.reply_text(
+                "🔥 Отлично! Для похудения важна регулярность.\n\n"
+                "Будем тренироваться в зоне 2 (разговорный темп) с постепенным увеличением объёма.\n\n"
+                "Сколько дней в неделю готов тренироваться?\n"
+                "Напиши число от 2 до 6:"
+            )
+            context.user_data['awaiting_days'] = True
+
+        else:  # endurance
+            # Для выносливости — сразу к дням
+            await query.message.reply_text(
+                "💪 Отлично! Будем развивать выносливость.\n\n"
+                "Сколько дней в неделю готов тренироваться?\n"
+                "Напиши число от 2 до 6:"
+            )
+            context.user_data['awaiting_days'] = True
+
+        logger.info(f"User {telegram_id} выбрал цель: {goal_type}")
+
+    async def handle_distance_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора дистанции забега"""
+        query = update.callback_query
+        await query.answer()
+
+        distance_str = query.data.replace("distance_", "")
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        if distance_str == "custom":
+            await query.message.reply_text(
+                "Напиши дистанцию в км (например: 15 или 100):"
+            )
+            context.user_data['awaiting_custom_distance'] = True
+        else:
+            distance_km = int(distance_str)
+            db.save_user_goal(user.id, goal_distance_km=distance_km)
+
+            await query.message.reply_text(
+                f"🏁 Отлично, готовимся к {distance_km} км!\n\n"
+                "Сколько дней в неделю готов тренироваться?\n"
+                "Напиши число от 2 до 6:"
+            )
+            context.user_data['awaiting_days'] = True
+
+        logger.info(f"User {telegram_id} выбрал дистанцию: {distance_str}")
 
     async def set_google_token(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /set_google_token - сохранение Google refresh token"""
@@ -1004,10 +1101,78 @@ class TrainingBot:
         await query.answer("Debug: этот callback не обработан")
 
     async def handle_ai_chat(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка текстовых сообщений через AI-агента"""
+        """Обработка текстовых сообщений через AI-агента или онбординг"""
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
-        message_text = update.message.text
+        message_text = update.message.text.strip()
+
+        # === ОНБОРДИНГ: ввод кастомной дистанции ===
+        if context.user_data.get('awaiting_custom_distance'):
+            try:
+                distance_km = int(message_text)
+                if distance_km < 1 or distance_km > 500:
+                    raise ValueError()
+
+                db.save_user_goal(user.id, goal_distance_km=distance_km)
+                context.user_data['awaiting_custom_distance'] = False
+
+                await update.message.reply_text(
+                    f"🏁 Отлично, готовимся к {distance_km} км!\n\n"
+                    "Сколько дней в неделю готов тренироваться?\n"
+                    "Напиши число от 2 до 6:"
+                )
+                context.user_data['awaiting_days'] = True
+                return
+            except:
+                await update.message.reply_text("Введи число от 1 до 500:")
+                return
+
+        # === ОНБОРДИНГ: ввод количества дней ===
+        if context.user_data.get('awaiting_days'):
+            try:
+                days = int(message_text)
+                if days < 2 or days > 6:
+                    raise ValueError()
+
+                # Сохраняем количество дней (пока просто число)
+                db.save_user_goal(user.id, training_days=[f"day_{i}" for i in range(days)])
+                context.user_data['awaiting_days'] = False
+
+                await update.message.reply_text(
+                    f"✅ Отлично, {days} дней в неделю!\n\n"
+                    "В какое время обычно тренируешься?\n"
+                    "Напиши примерное время (например: 07:00 или 19:30):"
+                )
+                context.user_data['awaiting_time'] = True
+                return
+            except:
+                await update.message.reply_text("Введи число от 2 до 6:")
+                return
+
+        # === ОНБОРДИНГ: ввод времени тренировок ===
+        if context.user_data.get('awaiting_time'):
+            # Принимаем любой формат времени
+            db.save_user_goal(user.id, training_time=message_text)
+            context.user_data['awaiting_time'] = False
+
+            # Завершаем онбординг
+            db.save_user_goal(user.id, onboarding_completed=True)
+
+            await update.message.reply_text(
+                "🎉 Настройка завершена!\n\n"
+                "Теперь бот будет:\n"
+                "• Присылать план тренировок\n"
+                "• Напоминать о тренировках\n"
+                "• Анализировать твой прогресс\n\n"
+                "Команды:\n"
+                "/plan — Создать/посмотреть план\n"
+                "/sync — Синхронизация с Garmin\n"
+                "/stats — Статистика\n\n"
+                "Или просто напиши мне — я помогу скорректировать тренировки!"
+            )
+
+            logger.info(f"✅ Онбординг завершён для user={telegram_id}")
+            return
 
         logger.info(f"💬 AI-чат от user={telegram_id}: {message_text[:50]}...")
 
