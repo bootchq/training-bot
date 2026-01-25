@@ -598,48 +598,188 @@ class TrainingBot:
 
         logger.info(f"Пользователь {update.effective_user.id} запросил регистрацию Garmin")
 
+    # === Внутренние методы для quick actions ===
+    # Эти методы принимают telegram_id и message напрямую,
+    # что позволяет вызывать их как из команд, так и из callback кнопок
+
+    async def _handle_stats(self, telegram_id: int, message):
+        """Внутренняя логика статистики"""
+        user = db.get_or_create_user(telegram_id)
+        credentials = db.get_user_garmin_credentials(user.id)
+
+        if not credentials:
+            await message.reply_text(
+                "📊 Статистика недоступна\n\n"
+                "❌ Учетные данные Garmin не найдены.\n\n"
+                "Используй /start для регистрации, затем посмотри статистику.",
+                parse_mode='Markdown'
+            )
+            return
+
+        calculator = StatsCalculator(user.id)
+        stats = calculator.get_week_stats()
+        stats_text = calculator.format_stats(stats)
+        await message.reply_text(stats_text, parse_mode='Markdown')
+        logger.info(f"Пользователь {telegram_id} запросил статистику")
+
+    async def _handle_plan(self, telegram_id: int, message):
+        """Внутренняя логика плана"""
+        from datetime import date, timedelta
+
+        user = db.get_or_create_user(telegram_id)
+        today = date.today()
+        start_of_week = today - timedelta(days=today.weekday())
+        plans = db.get_plan_for_week(user.id, start_of_week)
+
+        if not plans:
+            keyboard = [
+                [InlineKeyboardButton("📅 Тарки-Тау 50км (15 фев)", callback_data="plan_tarki")],
+                [InlineKeyboardButton("🏃 Марафон 42км (15 мар)", callback_data="plan_marathon")],
+                [InlineKeyboardButton("⛰ DWT 65км (15 апр)", callback_data="plan_dwt")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            await message.reply_text(
+                "📅 План тренировок не найден.\n\n"
+                "Выбери цель для автоматической генерации плана:",
+                reply_markup=reply_markup
+            )
+            return
+
+        await message.reply_text(
+            f"📅 **План тренировок на неделю**\n"
+            f"({start_of_week.strftime('%d.%m')} - {(start_of_week + timedelta(days=6)).strftime('%d.%m')})\n\n"
+            f"Всего тренировок: {len(plans)}",
+            parse_mode='Markdown'
+        )
+
+        days_ru = {
+            0: "Понедельник", 1: "Вторник", 2: "Среда", 3: "Четверг",
+            4: "Пятница", 5: "Суббота", 6: "Воскресенье"
+        }
+
+        for plan in plans:
+            day_name = days_ru.get(plan.date.weekday(), "")
+            plan_text = f"**{day_name} {plan.date.strftime('%d.%m')}**\n\n"
+            if plan.description:
+                plan_text += f"{plan.description}\n"
+            else:
+                plan_text += f"**{plan.type.capitalize()}**\n"
+                if plan.duration_min:
+                    plan_text += f"- Время: {plan.duration_min} мин\n"
+                if plan.distance_km:
+                    plan_text += f"- Расстояние: ~{plan.distance_km:.1f} км\n"
+                if plan.target_zone:
+                    plan_text += f"- Зоны: {plan.target_zone}\n"
+            await message.reply_text(plan_text, parse_mode='Markdown')
+
+        logger.info(f"Пользователь {telegram_id} запросил план")
+
+    async def _handle_sync(self, telegram_id: int, message, context):
+        """Внутренняя логика синхронизации"""
+        from datetime import date, timedelta
+
+        user = db.get_or_create_user(telegram_id)
+        credentials = db.get_user_garmin_credentials(user.id)
+
+        if not credentials:
+            await message.reply_text(
+                "❌ Учетные данные Garmin не найдены.\n\n"
+                "Используй /start для регистрации"
+            )
+            return
+
+        await message.reply_text("📥 Синхронизирую тренировки за последние 14 дней...")
+
+        try:
+            total_count = 0
+            today = date.today()
+            for i in range(14):
+                sync_date = today - timedelta(days=i)
+                count = garmin_sync.sync_date_for_user(user.id, sync_date)
+                total_count += count
+
+            if total_count > 0:
+                await message.reply_text(f"✅ Загружено {total_count} тренировок за последние 14 дней")
+            else:
+                await message.reply_text("ℹ️ Новых тренировок за последние 14 дней не найдено")
+        except Exception as e:
+            logger.error(f"Ошибка синхронизации для {telegram_id}: {e}")
+            await message.reply_text(
+                "❌ Ошибка синхронизации с Garmin.\n\n"
+                "Проверь правильность логина/пароля в настройках аккаунта Garmin"
+            )
+
+    async def _handle_calendar(self, telegram_id: int, message):
+        """Внутренняя логика календаря"""
+        from datetime import date, timedelta
+
+        user = db.get_or_create_user(telegram_id)
+        today = date.today()
+        start_of_week = today - timedelta(days=today.weekday())
+        plans = db.get_plan_for_week(user.id, start_of_week)
+
+        if not plans:
+            await message.reply_text(
+                "📅 План тренировок не найден.\n\n"
+                "Создай план командой /plan, затем экспортируй в календарь.",
+                parse_mode='Markdown'
+            )
+            return
+
+        await message.reply_text("📅 Генерирую ICS файл для импорта в календарь...")
+
+        try:
+            ics_path = calendar_sync.generate_ics_file(user.id, start_of_week, weeks=1)
+
+            if ics_path:
+                with open(ics_path, 'rb') as ics_file:
+                    await message.reply_document(
+                        document=ics_file,
+                        filename=f'план_{start_of_week.strftime("%d_%m")}.ics',
+                        caption=(
+                            "📲 **ICS файл для импорта в календарь**\n\n"
+                            "**iPhone/iPad:**\n"
+                            "1. Скачай файл\n"
+                            "2. Открой его\n"
+                            "3. Нажми \"Добавить всё\"\n\n"
+                            "**Android:**\n"
+                            "1. Скачай файл\n"
+                            "2. Открой Google Calendar\n"
+                            "3. Настройки → Импорт\n\n"
+                        ),
+                        parse_mode='Markdown'
+                    )
+                logger.info(f"Отправлен ICS файл пользователю {telegram_id}")
+            else:
+                await message.reply_text("❌ Ошибка генерации ICS файла")
+        except Exception as e:
+            logger.error(f"Ошибка генерации ICS для {telegram_id}: {e}")
+            await message.reply_text(f"❌ Ошибка: {e}")
+
     async def handle_quick_actions(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка quick action кнопок"""
         query = update.callback_query
         logger.info(f"🔘 QUICK ACTION: user={update.effective_user.id}, data='{query.data}'")
         await query.answer()
 
-        # Создаём адаптированный Update с message вместо callback_query
-        # Это позволяет переиспользовать существующие команды
-        class FakeMessage:
-            def __init__(self, query):
-                self.chat = query.message.chat
-                self.message_id = query.message.message_id
-                self._query = query
-
-            async def reply_text(self, *args, **kwargs):
-                await self._query.message.reply_text(*args, **kwargs)
-
-            async def reply_document(self, *args, **kwargs):
-                await self._query.message.reply_document(*args, **kwargs)
-
-        original_message = update.message
-        update.message = FakeMessage(query)
-
         action = query.data.replace('quick_', '')
+        message = query.message  # Используем message из callback напрямую
 
         try:
             if action == 'stats':
-                await self.stats(update, context)
+                await self._handle_stats(update.effective_user.id, message)
             elif action == 'plan':
-                await self.plan(update, context)
+                await self._handle_plan(update.effective_user.id, message)
             elif action == 'sync':
-                await self.sync(update, context)
+                await self._handle_sync(update.effective_user.id, message, context)
             elif action == 'calendar':
-                await self.calendar(update, context)
-            logger.info(f"Пользователь {update.effective_user.id} использовал quick action: {action}")
+                await self._handle_calendar(update.effective_user.id, message)
+            logger.info(f"✅ Quick action '{action}' выполнен для user={update.effective_user.id}")
         except Exception as e:
             logger.error(f"❌ ОШИБКА в quick action '{action}': {e}")
             import traceback
             logger.error(traceback.format_exc())
-            await query.message.reply_text(f"❌ Ошибка: {e}")
-        finally:
-            update.message = original_message
+            await message.reply_text(f"❌ Ошибка: {e}")
 
     async def debug_callback_handler(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Debug: ловит все неперехваченные callbacks"""
