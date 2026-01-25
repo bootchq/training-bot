@@ -199,6 +199,89 @@ class ReminderScheduler:
                 self.scheduler.remove_job(job.id)
                 logger.info(f"🗑 Удалено напоминание: {job.id}")
 
+    def schedule_weekly_report(self):
+        """Настроить еженедельную отправку отчетов"""
+        # Отправка каждый понедельник в 09:00
+        trigger = CronTrigger(day_of_week=0, hour=9, minute=0, timezone='Europe/Moscow')
+
+        self.scheduler.add_job(
+            func=self._send_weekly_reports,
+            trigger=trigger,
+            id="weekly_reports",
+            replace_existing=True
+        )
+
+        logger.info("✅ Настроена отправка еженедельных отчетов (понедельник 09:00)")
+
+    def _send_weekly_reports(self):
+        """Отправить еженедельные отчеты всем пользователям"""
+        from ..core.stats_calculator import StatsCalculator
+        from ..integrations.ai_consultant import AIConsultant
+
+        users = db.get_all_onboarded_users()
+        ai_consultant = AIConsultant()
+
+        for user in users:
+            try:
+                # Получаем статистику за неделю
+                calculator = StatsCalculator(user.id)
+                stats = calculator.get_week_stats()
+
+                if stats['trainings_count'] == 0:
+                    # Нет тренировок - мотивационное сообщение
+                    message = (
+                        "📊 Еженедельный отчет\n\n"
+                        "😔 За последнюю неделю не было тренировок\n\n"
+                        "Начни новую неделю с пробежки! Даже 15 минут лучше, чем ничего. 💪"
+                    )
+                else:
+                    # Генерируем AI-отчет с мотивацией
+                    report_prompt = f"""Ты тренер по бегу. Напиши мотивационный еженедельный отчет (3-4 предложения).
+
+Статистика за неделю:
+- Тренировок: {stats['trainings_count']}
+- Объём: {stats['total_distance']:.1f} км
+- Время: {stats['total_hours']}ч {stats['total_minutes']}мин
+"""
+                    if stats['avg_hr']:
+                        report_prompt += f"- Средний пульс: {int(stats['avg_hr'])} bpm\n"
+
+                    report_prompt += """
+Формат:
+1. Похвали за достижения
+2. Отметь прогресс или его отсутствие
+3. Дай совет на следующую неделю
+
+Пиши дружелюбно, мотивируй, будь позитивным."""
+
+                    try:
+                        ai_motivation = ai_consultant.ask(report_prompt)
+                        message = f"📊 Еженедельный отчет\n\n{ai_motivation}"
+                    except Exception as e:
+                        logger.error(f"Ошибка генерации AI-отчета для user={user.id}: {e}")
+                        # Fallback без AI
+                        message = (
+                            f"📊 Еженедельный отчет\n\n"
+                            f"🏃 Тренировок: {stats['trainings_count']}\n"
+                            f"📏 Объём: {stats['total_distance']:.1f} км\n"
+                            f"⏱ Время: {stats['total_hours']}ч {stats['total_minutes']}мин\n\n"
+                            f"Отличная работа! Продолжай в том же духе! 💪"
+                        )
+
+                # Отправляем отчет
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                loop.create_task(self.send_message(user.telegram_id, message))
+                logger.info(f"📊 Отправлен еженедельный отчет user={user.id}")
+
+            except Exception as e:
+                logger.error(f"Ошибка отправки отчета для user={user.id}: {e}")
+
     def shutdown(self):
         """Остановить планировщик"""
         self.scheduler.shutdown()
@@ -214,6 +297,7 @@ def init_reminder_scheduler(send_message_callback: Callable):
     global reminder_scheduler
     reminder_scheduler = ReminderScheduler(send_message_callback)
     reminder_scheduler.schedule_missed_training_check()
+    reminder_scheduler.schedule_weekly_report()
     return reminder_scheduler
 
 
