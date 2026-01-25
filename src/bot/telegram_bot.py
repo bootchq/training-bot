@@ -734,14 +734,14 @@ class TrainingBot:
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
-            await query.message.reply_text(
+            await query.edit_message_text(
                 "🏁 Какой тип забега?",
                 reply_markup=reply_markup
             )
 
         else:  # fitness — тренировки для себя
             # Сразу к выбору дней
-            await self._show_days_selection(query.message, context)
+            await self._show_days_selection(query=query, context=context)
 
         logger.info(f"User {telegram_id} выбрал цель: {goal_type}")
 
@@ -756,21 +756,21 @@ class TrainingBot:
 
         if race_type == "half":
             db.save_user_goal(user.id, goal_distance_km=21)
-            await self._show_days_selection(query.message, context)
+            await self._show_days_selection(query=query, context=context)
 
         elif race_type == "marathon":
             db.save_user_goal(user.id, goal_distance_km=42)
-            await self._show_days_selection(query.message, context)
+            await self._show_days_selection(query=query, context=context)
 
         elif race_type == "custom":
-            await query.message.reply_text(
+            await query.edit_message_text(
                 "📏 Введи дистанцию забега в км\n"
                 "(например: 10 или 50):"
             )
             context.user_data['awaiting_custom_distance'] = True
 
         elif race_type == "trail":
-            await query.message.reply_text(
+            await query.edit_message_text(
                 "⛰ Введи дистанцию трейла в км\n"
                 "(например: 30 или 100):"
             )
@@ -778,7 +778,7 @@ class TrainingBot:
 
         logger.info(f"User {telegram_id} выбрал тип забега: {race_type}")
 
-    async def _show_days_selection(self, message, context: ContextTypes.DEFAULT_TYPE):
+    async def _show_days_selection(self, query=None, message=None, context: ContextTypes.DEFAULT_TYPE = None):
         """Показать выбор дней недели"""
         context.user_data['selected_days'] = []
 
@@ -798,12 +798,18 @@ class TrainingBot:
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await message.reply_text(
+        text = (
             "📅 Выбери дни для тренировок:\n\n"
             "(нажми на дни, затем \"Готово\")\n\n"
-            "Выбрано: —",
-            reply_markup=reply_markup
+            "Выбрано: —"
         )
+
+        if query:
+            # Редактируем существующее сообщение
+            await query.edit_message_text(text, reply_markup=reply_markup)
+        elif message:
+            # Создаем новое сообщение
+            await message.reply_text(text, reply_markup=reply_markup)
 
     async def handle_days_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка выбора дней недели"""
@@ -1174,7 +1180,7 @@ class TrainingBot:
                 context.user_data['awaiting_custom_distance'] = False
 
                 await update.message.reply_text(f"🏁 Готовимся к {distance_km} км!")
-                await self._show_days_selection(update.message, context)
+                await self._show_days_selection(message=update.message, context=context)
                 return
             except:
                 await update.message.reply_text("Введи число от 1 до 500:")
@@ -1191,7 +1197,7 @@ class TrainingBot:
                 context.user_data['awaiting_trail_distance'] = False
 
                 await update.message.reply_text(f"⛰ Готовимся к трейлу {distance_km} км!")
-                await self._show_days_selection(update.message, context)
+                await self._show_days_selection(message=update.message, context=context)
                 return
             except:
                 await update.message.reply_text("Введи число от 1 до 500:")
