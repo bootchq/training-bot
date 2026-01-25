@@ -721,7 +721,8 @@ class TrainingBot:
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
-        # Сохраняем цель
+        # Сохраняем цель и в context для последующих вызовов
+        context.user_data['goal_type'] = goal_type
         db.save_user_goal(user.id, goal_type=goal_type)
 
         if goal_type == "race":
@@ -757,11 +758,11 @@ class TrainingBot:
         logger.info(f"🔘 RACE TYPE CALLBACK: user={telegram_id}, data='{query.data}', parsed='{race_type}'")
 
         if race_type == "half":
-            db.save_user_goal(user.id, goal_distance_km=21)
+            db.save_user_goal(user.id, goal_type='race', goal_distance_km=21)
             await self._show_days_selection(query=query, context=context)
 
         elif race_type == "marathon":
-            db.save_user_goal(user.id, goal_distance_km=42)
+            db.save_user_goal(user.id, goal_type='race', goal_distance_km=42)
             await self._show_days_selection(query=query, context=context)
 
         elif race_type == "custom":
@@ -842,7 +843,8 @@ class TrainingBot:
                 return
 
             # Сохраняем дни
-            db.save_user_goal(user.id, training_days=[f"day_{d}" for d in selected_days])
+            goal_type = context.user_data.get('goal_type', 'fitness')
+            db.save_user_goal(user.id, goal_type=goal_type, training_days=[f"day_{d}" for d in selected_days])
 
             # Переходим к выбору времени
             await query.message.reply_text(
@@ -1191,7 +1193,7 @@ class TrainingBot:
                 if distance_km < 1 or distance_km > 500:
                     raise ValueError(f"Дистанция вне диапазона: {distance_km}")
 
-                db.save_user_goal(user.id, goal_distance_km=distance_km)
+                db.save_user_goal(user.id, goal_type='race', goal_distance_km=distance_km)
                 context.user_data['awaiting_custom_distance'] = False
                 logger.info(f"Сохранена кастомная дистанция {distance_km} км для user={telegram_id}")
 
@@ -1226,11 +1228,12 @@ class TrainingBot:
         # === ОНБОРДИНГ: ввод времени тренировок ===
         if context.user_data.get('awaiting_time'):
             # Принимаем любой формат времени
-            db.save_user_goal(user.id, training_time=message_text)
+            goal_type = context.user_data.get('goal_type', 'fitness')
+            db.save_user_goal(user.id, goal_type=goal_type, training_time=message_text)
             context.user_data['awaiting_time'] = False
 
             # Завершаем онбординг
-            db.save_user_goal(user.id, onboarding_completed=True)
+            db.save_user_goal(user.id, goal_type=goal_type, onboarding_completed=True)
 
             await update.message.reply_text(
                 "🎉 Настройка завершена!\n\n"
