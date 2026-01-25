@@ -1043,6 +1043,13 @@ class TrainingBot:
 
         if query.data == "confirm_reset":
             telegram_id = update.effective_user.id
+            user = db.get_or_create_user(telegram_id)
+
+            # Удаляем напоминания
+            reminder_scheduler = get_reminder_scheduler()
+            if reminder_scheduler:
+                reminder_scheduler._remove_user_reminders(user.id)
+
             success = db.reset_user(telegram_id)
 
             if success:

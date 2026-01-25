@@ -779,6 +779,9 @@ class Database:
             if not user:
                 return False
 
+            # Удаляем персональные рекорды
+            session.query(PersonalRecord).filter_by(user_id=user.id).delete()
+
             # Сбрасываем всё кроме telegram_id
             user.garmin_email = None
             user.garmin_password = None
