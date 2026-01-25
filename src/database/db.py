@@ -110,6 +110,23 @@ class Goal(Base):
     type = Column(String, nullable=False)
 
 
+class PersonalRecord(Base):
+    """Персональные рекорды пользователя"""
+    __tablename__ = "personal_records"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    record_type = Column(String, nullable=False)  # longest_run, fastest_5k, fastest_10k, etc.
+    value = Column(Float, nullable=False)  # Значение рекорда (км, мин/км, км/нед)
+    training_id = Column(Integer)  # ID тренировки, где был установлен рекорд
+    date_achieved = Column(Date, nullable=False)
+    details = Column(JSON)  # Дополнительные детали (темп, пульс и т.д.)
+
+    __table_args__ = (
+        Index('ix_pr_user_type', 'user_id', 'record_type'),
+    )
+
+
 class Database:
     """Менеджер базы данных"""
 

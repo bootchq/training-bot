@@ -16,6 +16,7 @@ from ..core.wellness_survey import WellnessSurvey
 from ..core.plan_adapter import PlanAdapter
 from ..core.reminders import init_reminder_scheduler, get_reminder_scheduler
 from ..core.ai_training_analyzer import get_training_analyzer
+from ..core.personal_records import create_records_manager
 
 # Состояния для ConversationHandler
 GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
@@ -60,6 +61,7 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("sync", self.sync))
         self.app.add_handler(CommandHandler("stats", self.stats))
+        self.app.add_handler(CommandHandler("records", self.records))
         self.app.add_handler(CommandHandler("plan", self.plan))
         self.app.add_handler(CommandHandler("calendar", self.calendar))
         self.app.add_handler(CommandHandler("skip", self.skip_training))
@@ -235,6 +237,17 @@ class TrainingBot:
                     analysis = analyzer.analyze_training(latest_training, user_goal)
 
                     await update.message.reply_text(f"📊 Анализ тренировки:\n\n{analysis}")
+
+                    # Проверяем персональные рекорды
+                    records_manager = create_records_manager(user.id)
+                    new_records = records_manager.check_training_for_records(latest_training)
+
+                    if new_records:
+                        records_text = "🏆 Новый персональный рекорд!\n\n"
+                        for record in new_records:
+                            records_text += f"{record['name']}: {record['value']} {record['unit']}\n"
+                        records_text += "\nПоздравляю! Продолжай в том же духе! 💪"
+                        await update.message.reply_text(records_text)
             else:
                 await update.message.reply_text("ℹ️ Новых тренировок за последние 14 дней не найдено")
         except Exception as e:
@@ -309,6 +322,28 @@ class TrainingBot:
                 )
 
             logger.info(f"Пользователь {telegram_id} запросил статистику за неделю")
+
+    async def records(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /records - показ персональных рекордов"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Проверяем есть ли credentials
+        credentials = db.get_user_garmin_credentials(user.id)
+        if not credentials:
+            await update.message.reply_text(
+                "🏆 Персональные рекорды недоступны\n\n"
+                "❌ Учетные данные Garmin не найдены.\n\n"
+                "Используй /start для регистрации"
+            )
+            return
+
+        # Получаем рекорды
+        records_manager = create_records_manager(user.id)
+        records_text = records_manager.format_records_message()
+
+        await update.message.reply_text(records_text)
+        logger.info(f"Пользователь {telegram_id} запросил персональные рекорды")
 
     async def plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /plan - показ плана на неделю"""
@@ -1519,6 +1554,7 @@ class TrainingBot:
             BotCommand("help", "Помощь"),
             BotCommand("sync", "Синхронизация с Garmin"),
             BotCommand("stats", "Статистика за неделю/месяц"),
+            BotCommand("records", "Персональные рекорды"),
             BotCommand("plan", "План тренировок на неделю"),
             BotCommand("calendar", "Скачать план для календаря"),
         ]
