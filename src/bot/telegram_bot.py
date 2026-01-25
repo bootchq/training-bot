@@ -1041,36 +1041,52 @@ class TrainingBot:
         query = update.callback_query
         await query.answer()
 
+        logger.info(f"🔄 handle_reset_confirm вызван, query.data={query.data}")
+
         if query.data == "confirm_reset":
             telegram_id = update.effective_user.id
+            logger.info(f"🔄 Начало сброса для telegram_id={telegram_id}")
+
             user = db.get_or_create_user(telegram_id)
+            logger.info(f"🔄 User получен: user.id={user.id}, onboarding_completed={user.onboarding_completed}")
 
             # Останавливаем user scheduler если есть
             if user.id in self.user_schedulers:
                 try:
+                    logger.info(f"🔄 Останавливаем user_scheduler для user.id={user.id}")
                     self.user_schedulers[user.id].stop()
                     del self.user_schedulers[user.id]
-                    logger.info(f"Остановлен scheduler для user={user.id}")
+                    logger.info(f"✅ Остановлен scheduler для user={user.id}")
                 except Exception as e:
-                    logger.error(f"Ошибка остановки scheduler для user={user.id}: {e}")
+                    logger.error(f"❌ Ошибка остановки scheduler для user={user.id}: {e}")
+            else:
+                logger.info(f"ℹ️ User scheduler не найден для user.id={user.id}")
 
             # Удаляем напоминания
+            logger.info(f"🔄 Удаление напоминаний для user.id={user.id}")
             reminder_scheduler = get_reminder_scheduler()
             if reminder_scheduler:
-                reminder_scheduler.remove_user_reminders(user.id)
+                removed_count = reminder_scheduler.remove_user_reminders(user.id)
+                logger.info(f"✅ Удалено {removed_count} напоминаний для user.id={user.id}")
+            else:
+                logger.warning(f"⚠️ ReminderScheduler не инициализирован")
 
             # Сбрасываем данные в БД
+            logger.info(f"🔄 Вызов db.reset_user для telegram_id={telegram_id}")
             success = db.reset_user(telegram_id)
+            logger.info(f"🔄 db.reset_user вернул: {success}")
 
             if success:
                 await query.edit_message_text(
                     "✅ Данные сброшены.\n\n"
                     "Используй /start для повторной регистрации."
                 )
-                logger.info(f"Пользователь {telegram_id} полностью сбросил данные")
+                logger.info(f"✅ Пользователь {telegram_id} полностью сбросил данные")
             else:
+                logger.error(f"❌ db.reset_user вернул False для telegram_id={telegram_id}")
                 await query.edit_message_text("❌ Ошибка сброса. Попробуй позже.")
         else:
+            logger.info(f"ℹ️ Сброс отменён пользователем, query.data={query.data}")
             await query.edit_message_text("❌ Сброс отменён.")
 
     # === Внутренние методы для quick actions ===
