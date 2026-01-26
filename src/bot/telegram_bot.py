@@ -825,13 +825,16 @@ class TrainingBot:
 
         if race_type == "half":
             db.save_user_goal(user.id, goal_type='race', goal_distance_km=21)
+            context.user_data['goal_type'] = 'race'
             await self._ask_goal_date(query=query, context=context)
 
         elif race_type == "marathon":
             db.save_user_goal(user.id, goal_type='race', goal_distance_km=42)
+            context.user_data['goal_type'] = 'race'
             await self._ask_goal_date(query=query, context=context)
 
         elif race_type == "custom":
+            context.user_data['goal_type'] = 'race'
             await query.edit_message_text(
                 "📏 Введи дистанцию забега в км\n"
                 "(например: 10 или 50):"
@@ -840,6 +843,7 @@ class TrainingBot:
             logger.info(f"Установлен флаг awaiting_custom_distance для user={telegram_id}")
 
         elif race_type == "trail":
+            context.user_data['goal_type'] = 'trail'
             await query.edit_message_text(
                 "⛰ Введи дистанцию трейла в км\n"
                 "(например: 30 или 100):"
@@ -1359,7 +1363,8 @@ class TrainingBot:
                     return
 
                 # Сохраняем дату
-                db.save_user_goal(user.id, goal_date=goal_date)
+                goal_type = context.user_data.get('goal_type', 'race')
+                db.save_user_goal(user.id, goal_type=goal_type, goal_date=goal_date)
                 context.user_data['awaiting_goal_date'] = False
                 logger.info(f"Сохранена дата забега {goal_date} для user={telegram_id}")
 
