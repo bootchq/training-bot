@@ -360,19 +360,43 @@ class TrainingBot:
         plans = db.get_plan_for_week(user.id, start_of_week)
 
         if not plans:
-            # Предлагаем создать план автоматически
-            keyboard = [
-                [InlineKeyboardButton("📅 Тарки-Тау 50км (15 фев)", callback_data="plan_tarki")],
-                [InlineKeyboardButton("🏃 Марафон 42км (15 мар)", callback_data="plan_marathon")],
-                [InlineKeyboardButton("⛰ DWT 65км (15 апр)", callback_data="plan_dwt")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+            # Проверяем есть ли данные для автосоздания плана
+            settings = db.get_user_settings(user.id)
 
-            await update.message.reply_text(
-                "📅 План тренировок не найден.\n\n"
-                "Выбери цель для автоматической генерации плана:",
-                reply_markup=reply_markup
-            )
+            if settings and settings.get('goal_date') and settings.get('training_days') and settings.get('goal_type') in ['race', 'trail']:
+                # Автосоздаем план используя данные из онбординга
+                await update.message.reply_text(
+                    "📅 План не найден.\n\n"
+                    "⏳ Создаю план на основе твоих настроек..."
+                )
+
+                plan_created = await self._auto_create_race_plan(user.id, update.message)
+
+                if plan_created:
+                    # Получаем созданный план и показываем
+                    plans = db.get_plan_for_week(user.id, start_of_week)
+                    if plans:
+                        await update.message.reply_text("✅ План создан! Вот он:")
+                    else:
+                        await update.message.reply_text("✅ План создан, но для текущей недели нет тренировок.\n\nИспользуй /plan на следующей неделе.")
+                        return
+                else:
+                    await update.message.reply_text(
+                        "❌ Не удалось создать план автоматически.\n\n"
+                        "Проверь что указаны все настройки (дата забега, дни тренировок)."
+                    )
+                    return
+            else:
+                # Нет данных для автосоздания - предлагаем пройти онбординг
+                await update.message.reply_text(
+                    "📅 План тренировок не найден.\n\n"
+                    "Для создания плана нужно настроить цель и дни тренировок.\n\n"
+                    "Используй /start для настройки или /help для помощи."
+                )
+                return
+
+        # Если после автосоздания плана нет на эту неделю - выходим
+        if not plans:
             return
 
         # Отправляем заголовок
@@ -876,6 +900,97 @@ class TrainingBot:
 
         context.user_data['awaiting_goal_date'] = True
         logger.info("Установлен флаг awaiting_goal_date")
+
+    async def _auto_create_race_plan(self, user_id: int, message) -> bool:
+        """
+        Автоматическое создание плана тренировок после завершения онбординга
+
+        Args:
+            user_id: ID пользователя
+            message: Сообщение для отправки статуса
+
+        Returns:
+            True если план создан успешно
+        """
+        from datetime import date, timedelta
+        from ..core.plan_generator import PlanGenerator
+
+        try:
+            # Получаем настройки пользователя
+            settings = db.get_user_settings(user_id)
+            if not settings:
+                logger.warning(f"Нет настроек для автосоздания плана user_id={user_id}")
+                return False
+
+            # Проверяем наличие всех необходимых данных
+            goal_distance = settings.get('goal_distance_km')
+            goal_date = settings.get('goal_date')
+            training_days = settings.get('training_days')
+
+            if not goal_distance or not goal_date or not training_days:
+                logger.warning(f"Недостаточно данных для плана: distance={goal_distance}, date={goal_date}, days={training_days}")
+                return False
+
+            # Преобразуем training_days из ["day_1", "day_2"] в [1, 2]
+            day_numbers = []
+            for day_str in training_days:
+                if isinstance(day_str, str) and day_str.startswith('day_'):
+                    day_num = int(day_str.replace('day_', ''))
+                    day_numbers.append(day_num)
+
+            if not day_numbers:
+                logger.warning(f"Не удалось распарсить дни тренировок: {training_days}")
+                return False
+
+            # Определяем время на тренировку (по умолчанию 60 минут)
+            time_per_session = 60
+            training_time = settings.get('training_time')
+            if training_time:
+                # Пытаемся извлечь число минут из строки типа "60" или "19:00"
+                import re
+                minutes_match = re.search(r'(\d+)', training_time)
+                if minutes_match:
+                    extracted_time = int(minutes_match.group(1))
+                    # Если это похоже на минуты (30-240), используем
+                    if 30 <= extracted_time <= 240:
+                        time_per_session = extracted_time
+
+            # Рассчитываем количество недель до забега
+            today = date.today()
+            if goal_date <= today:
+                logger.warning(f"Дата забега {goal_date} уже прошла")
+                return False
+
+            days_until_race = (goal_date - today).days
+            weeks_until_race = max(4, min(16, days_until_race // 7))  # от 4 до 16 недель
+
+            await message.reply_text(
+                f"⏳ Создаю план подготовки...\n\n"
+                f"📅 До забега: {days_until_race} дней ({weeks_until_race} недель)\n"
+                f"🎯 Дистанция: {goal_distance} км\n"
+                f"📆 Тренировочных дней в неделю: {len(day_numbers)}"
+            )
+
+            # Генерируем план
+            generator = PlanGenerator(user_id)
+            trainings = generator.generate_detailed_plan(
+                goal_distance=goal_distance,
+                goal_date=goal_date,
+                training_days=day_numbers,
+                time_per_session=time_per_session,
+                weeks=weeks_until_race
+            )
+
+            # Сохраняем в БД
+            count = generator.save_plan_to_db(trainings)
+
+            logger.info(f"✅ Автоплан создан для user={user_id}: {count} тренировок на {weeks_until_race} недель")
+
+            return count > 0
+
+        except Exception as e:
+            logger.error(f"Ошибка автосоздания плана для user={user_id}: {e}", exc_info=True)
+            return False
 
     async def _show_days_selection(self, query=None, message=None, context: ContextTypes.DEFAULT_TYPE = None):
         """Показать выбор дней недели"""
@@ -1394,18 +1509,36 @@ class TrainingBot:
                 reminder_scheduler.schedule_user_reminders(user.id)
                 logger.info(f"🔔 Напоминания настроены для user={user.id}")
 
-            await update.message.reply_text(
-                "🎉 Настройка завершена!\n\n"
-                "Теперь бот будет:\n"
-                "• Присылать план тренировок\n"
-                "• Напоминать о тренировках\n"
-                "• Анализировать твой прогресс\n\n"
-                "Команды:\n"
-                "/plan — Создать/посмотреть план\n"
-                "/sync — Синхронизация с Garmin\n"
-                "/stats — Статистика\n\n"
-                "Или просто напиши мне — я помогу скорректировать тренировки!"
-            )
+            # Автосоздание плана для забегов
+            plan_created = False
+            if goal_type in ['race', 'trail']:
+                logger.info(f"Автосоздание плана для забега user={user.id}")
+                plan_created = await self._auto_create_race_plan(user.id, update.message)
+
+            if plan_created:
+                await update.message.reply_text(
+                    "🎉 Настройка завершена!\n\n"
+                    "✅ План тренировок создан и готов к использованию\n\n"
+                    "Теперь бот будет:\n"
+                    "• Показывать план на неделю (/plan)\n"
+                    "• Напоминать о тренировках\n"
+                    "• Анализировать твой прогресс (/stats)\n"
+                    "• Синхронизировать с Garmin (/sync)\n\n"
+                    "Или просто напиши мне — я помогу скорректировать тренировки!"
+                )
+            else:
+                await update.message.reply_text(
+                    "🎉 Настройка завершена!\n\n"
+                    "Теперь бот будет:\n"
+                    "• Присылать план тренировок\n"
+                    "• Напоминать о тренировках\n"
+                    "• Анализировать твой прогресс\n\n"
+                    "Команды:\n"
+                    "/plan — Создать/посмотреть план\n"
+                    "/sync — Синхронизация с Garmin\n"
+                    "/stats — Статистика\n\n"
+                    "Или просто напиши мне — я помогу скорректировать тренировки!"
+                )
 
             logger.info(f"✅ Онбординг завершён для user={telegram_id}")
             return

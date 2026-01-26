@@ -139,19 +139,47 @@ class PlanGenerator:
         # Определяем типы тренировок по дням недели
         workout_types = self._determine_workout_types(training_days, time_per_session)
 
+        # Периодизация: определяем фазы подготовки
+        base_weeks = int(weeks * 0.6)  # 60% - базовый период
+        build_weeks = int(weeks * 0.3)  # 30% - развивающий период
+        taper_weeks = weeks - base_weeks - build_weeks  # 10% - подводка
+
         for week_num in range(weeks):
-            week_multiplier = 1 + (week_num * 0.1)  # Прогрессия +10%
+            # Определяем множитель нагрузки в зависимости от периода
+            if week_num < base_weeks:
+                # Базовый период: постепенный рост от 0.9 до 1.1
+                progress = week_num / max(base_weeks - 1, 1)
+                week_multiplier = 0.9 + (progress * 0.2)
+            elif week_num < base_weeks + build_weeks:
+                # Развивающий период: пик нагрузки 1.1-1.2
+                progress = (week_num - base_weeks) / max(build_weeks - 1, 1)
+                week_multiplier = 1.1 + (progress * 0.1)
+            else:
+                # Подводка: снижение нагрузки
+                weeks_to_race = weeks - week_num
+                if weeks_to_race <= 1:
+                    # Последняя неделя: сильное снижение (50%)
+                    week_multiplier = 0.5
+                else:
+                    # Предпоследние недели: умеренное снижение (70-80%)
+                    week_multiplier = 0.8 - ((taper_weeks - weeks_to_race) * 0.1)
 
             for day_num in training_days:
                 # Преобразуем 1-7 в 0-6 (Python weekday)
                 day_offset = (day_num - 1) % 7
                 training_date = start_date + timedelta(days=(week_num * 7) + day_offset)
 
+                # Пропускаем прошлые даты и даты после забега
                 if training_date < date.today() or training_date > goal_date:
                     continue
 
-                # Определяем тип тренировки для этого дня
-                workout_type = workout_types.get(day_num, 'easy')
+                # За 3 дня до забега - только легкие тренировки
+                days_to_race = (goal_date - training_date).days
+                if days_to_race <= 3 and days_to_race > 0:
+                    workout_type = 'recovery'
+                else:
+                    # Определяем тип тренировки для этого дня
+                    workout_type = workout_types.get(day_num, 'easy')
 
                 # Генерируем детальное описание
                 workout_details = self._generate_workout_details(
@@ -171,7 +199,7 @@ class PlanGenerator:
 
                 trainings.append(training)
 
-        logger.info(f"Сгенерирован детальный план: {len(trainings)} тренировок")
+        logger.info(f"Сгенерирован детальный план с периодизацией: {len(trainings)} тренировок на {weeks} недель (база: {base_weeks}н, развитие: {build_weeks}н, подводка: {taper_weeks}н)")
         return trainings
 
     def _determine_workout_types(self, training_days: List[int], time_per_session: int) -> Dict[int, str]:
