@@ -37,7 +37,7 @@ class ReminderScheduler:
             return
 
         # Удаляем старые напоминания пользователя
-        self._remove_user_reminders(user_id)
+        self.remove_user_reminders(user_id)
 
         training_days = user_settings['training_days']  # ["day_1", "day_2", ...]
         training_time_str = user_settings['training_time']  # "19:00"
