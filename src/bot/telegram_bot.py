@@ -1326,13 +1326,10 @@ class TrainingBot:
 
         # === ОНБОРДИНГ: ввод времени тренировок ===
         if context.user_data.get('awaiting_time'):
-            # Принимаем любой формат времени
+            # Принимаем любой формат времени и завершаем онбординг
             goal_type = context.user_data.get('goal_type', 'fitness')
             db.save_user_goal(user.id, goal_type=goal_type, training_time=message_text)
             context.user_data['awaiting_time'] = False
-
-            # Завершаем онбординг
-            db.save_user_goal(user.id, goal_type=goal_type, onboarding_completed=True)
 
             # Настраиваем напоминания
             reminder_scheduler = get_reminder_scheduler()
