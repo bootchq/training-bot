@@ -119,7 +119,8 @@ class PlanGenerator:
             return 'advanced'
 
     def generate_detailed_plan(self, goal_distance: int, goal_date: date, training_days: List[int],
-                               time_per_session: int, weeks: int = 4, goal_type: str = 'race') -> List[Dict[str, Any]]:
+                               time_per_session: int, weeks: int = 4, goal_type: str = 'race',
+                               fitness_level: str = None) -> List[Dict[str, Any]]:
         """
         Генерация детального плана тренировок с индивидуальными параметрами
 
@@ -130,6 +131,7 @@ class PlanGenerator:
             time_per_session: Время на одну тренировку (минуты)
             weeks: Количество недель плана
             goal_type: Тип цели (race/trail/fitness)
+            fitness_level: Уровень подготовки (beginner/intermediate/advanced), опционально
 
         Returns:
             Список тренировок с детальным описанием
@@ -138,8 +140,14 @@ class PlanGenerator:
         start_date = date.today()
 
         # Определяем текущий уровень подготовки
-        current_level = self._estimate_current_level()
-        logger.info(f"Текущий уровень подготовки user={self.user_id}: {current_level}")
+        if fitness_level:
+            # Используем явно указанный уровень
+            current_level = fitness_level
+            logger.info(f"Используется явно указанный уровень подготовки user={self.user_id}: {current_level}")
+        else:
+            # Автоопределение по истории тренировок
+            current_level = self._estimate_current_level()
+            logger.info(f"Автоопределён уровень подготовки user={self.user_id}: {current_level}")
 
         # Корректируем базовое время в зависимости от уровня
         if current_level == 'beginner':

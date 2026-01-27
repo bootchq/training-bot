@@ -78,6 +78,7 @@ class TrainingBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_race_type_selection, pattern="^racetype_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_distance_selection, pattern="^distance_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_days_selection, pattern="^trainday_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_level_onboarding, pattern="^level_onboarding_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_level_selection, pattern="^level_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
@@ -680,17 +681,17 @@ class TrainingBot:
         # Запускаем первую синхронизацию
         user = db.get_or_create_user(telegram_id)
         try:
-            # Синхронизируем последние 7 дней
+            # Синхронизируем последние 30 дней
             from datetime import date, timedelta
             count = 0
-            for i in range(7):
+            for i in range(30):
                 sync_date = date.today() - timedelta(days=i)
                 count += garmin_sync.sync_date_for_user(user.id, sync_date)
 
             if count > 0:
-                await update.message.reply_text(f"✅ Загружено {count} тренировок за последнюю неделю")
+                await update.message.reply_text(f"✅ Загружено {count} тренировок за последние 30 дней")
             else:
-                await update.message.reply_text("ℹ️ Тренировок за последнюю неделю не найдено")
+                await update.message.reply_text("ℹ️ Тренировок за последние 30 дней не найдено")
 
         except Exception as e:
             logger.error(f"Ошибка первой синхронизации: {e}")
@@ -973,6 +974,9 @@ class TrainingBot:
                 f"📆 Тренировочных дней в неделю: {len(day_numbers)}"
             )
 
+            # Получаем уровень подготовки если указан
+            fitness_level = settings.get('fitness_level')
+
             # Генерируем план
             generator = PlanGenerator(user_id)
             trainings = generator.generate_detailed_plan(
@@ -981,7 +985,8 @@ class TrainingBot:
                 training_days=day_numbers,
                 time_per_session=time_per_session,
                 weeks=weeks_until_race,
-                goal_type=goal_type
+                goal_type=goal_type,
+                fitness_level=fitness_level
             )
 
             # Сохраняем в БД
@@ -1050,13 +1055,20 @@ class TrainingBot:
             goal_type = context.user_data.get('goal_type', 'fitness')
             db.save_user_goal(user.id, goal_type=goal_type, training_days=[f"day_{d}" for d in selected_days])
 
-            # Переходим к выбору длительности тренировки
+            # Спрашиваем уровень подготовки
+            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+            keyboard = [
+                [InlineKeyboardButton("🟢 Новичок (бегаю < 6 мес)", callback_data="level_onboarding_beginner")],
+                [InlineKeyboardButton("🟡 Средний (6-24 мес)", callback_data="level_onboarding_intermediate")],
+                [InlineKeyboardButton("🔴 Опытный (> 2 года)", callback_data="level_onboarding_advanced")]
+            ]
+
             await query.message.reply_text(
-                "⏱ Сколько времени у тебя на одну тренировку?\n\n"
-                "Напиши в минутах (например: 60, 90, 120)\n"
-                "Или диапазон времени (например: с 19 до 21)"
+                "🏃 Какой у тебя опыт в беге?\n\n"
+                "Это нужно чтобы подобрать правильный объём и интенсивность тренировок",
+                reply_markup=InlineKeyboardMarkup(keyboard)
             )
-            context.user_data['awaiting_time'] = True
             return
 
         # Toggle дня
@@ -1776,6 +1788,33 @@ class TrainingBot:
         context.user_data['awaiting_level'] = True
         return PLAN_TIME
 
+    async def handle_level_onboarding(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора уровня подготовки в онбординге"""
+        query = update.callback_query
+        await query.answer()
+
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Извлекаем уровень из callback_data: level_onboarding_beginner → beginner
+        level = query.data.replace("level_onboarding_", "")
+
+        # Сохраняем уровень в БД
+        db.save_user_goal(user.id, fitness_level=level)
+
+        # Сохраняем уровень в context для использования в текущей сессии
+        context.user_data['fitness_level'] = level
+
+        logger.info(f"User {telegram_id} выбрал уровень подготовки: {level}")
+
+        # Спрашиваем время на тренировку
+        await query.message.reply_text(
+            "⏱ Сколько времени у тебя на одну тренировку?\n\n"
+            "Напиши в минутах (например: 60, 90, 120)\n"
+            "Или диапазон времени (например: с 19 до 21)"
+        )
+        context.user_data['awaiting_time'] = True
+
     async def handle_level_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка выбора уровня подготовки и генерация плана"""
         from datetime import date
@@ -1806,21 +1845,14 @@ class TrainingBot:
         # Генерируем план с учетом уровня
         generator = PlanGenerator(user.id)
 
-        # Применяем множитель времени в зависимости от уровня
-        if level == 'beginner':
-            adjusted_time = int(time_min * 0.85)  # -15%
-        elif level == 'advanced':
-            adjusted_time = int(time_min * 1.15)  # +15%
-        else:
-            adjusted_time = time_min
-
         trainings = generator.generate_detailed_plan(
             goal_distance=goal_data['distance'],
             goal_date=goal_data['date'],
             training_days=selected_days,
-            time_per_session=adjusted_time,
+            time_per_session=time_min,
             weeks=4,
-            goal_type=goal_data.get('type', 'race')
+            goal_type=goal_data.get('type', 'race'),
+            fitness_level=level
         )
 
         # Сохраняем в БД
