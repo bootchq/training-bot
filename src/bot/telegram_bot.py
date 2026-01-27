@@ -1056,7 +1056,6 @@ class TrainingBot:
             db.save_user_goal(user.id, goal_type=goal_type, training_days=[f"day_{d}" for d in selected_days])
 
             # Проверяем есть ли история тренировок за последний месяц
-            from ..core.stats_calculator import StatsCalculator
             calculator = StatsCalculator(user.id)
             stats = calculator.get_month_stats()
 
@@ -1072,8 +1071,6 @@ class TrainingBot:
                 context.user_data['awaiting_time'] = True
             else:
                 # Нет истории → спрашиваем уровень
-                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
                 keyboard = [
                     [InlineKeyboardButton("🟢 Новичок (бегаю < 6 мес)", callback_data="level_onboarding_beginner")],
                     [InlineKeyboardButton("🟡 Средний (6-24 мес)", callback_data="level_onboarding_intermediate")],
