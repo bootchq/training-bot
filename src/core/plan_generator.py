@@ -140,14 +140,23 @@ class PlanGenerator:
         start_date = date.today()
 
         # Определяем текущий уровень подготовки
-        if fitness_level:
-            # Используем явно указанный уровень
-            current_level = fitness_level
-            logger.info(f"Используется явно указанный уровень подготовки user={self.user_id}: {current_level}")
-        else:
-            # Автоопределение по истории тренировок
+        # Приоритет: автоопределение по истории, если нет истории → явный выбор
+        from ..core.stats_calculator import StatsCalculator
+        calculator = StatsCalculator(self.user_id)
+        stats = calculator.get_month_stats()
+
+        if stats['trainings_count'] > 0:
+            # Есть история → автоопределение (объективно)
             current_level = self._estimate_current_level()
-            logger.info(f"Автоопределён уровень подготовки user={self.user_id}: {current_level}")
+            logger.info(f"Автоопределён уровень по истории ({stats['trainings_count']} тренировок) user={self.user_id}: {current_level}")
+        elif fitness_level:
+            # Нет истории + явно указан уровень → используем явный
+            current_level = fitness_level
+            logger.info(f"Нет истории тренировок, используется явный уровень user={self.user_id}: {current_level}")
+        else:
+            # Нет истории + не указан уровень → beginner по умолчанию
+            current_level = 'beginner'
+            logger.info(f"Нет истории и уровня, по умолчанию beginner для user={self.user_id}")
 
         # Корректируем базовое время в зависимости от уровня
         if current_level == 'beginner':

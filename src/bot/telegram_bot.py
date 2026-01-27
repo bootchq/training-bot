@@ -1055,20 +1055,37 @@ class TrainingBot:
             goal_type = context.user_data.get('goal_type', 'fitness')
             db.save_user_goal(user.id, goal_type=goal_type, training_days=[f"day_{d}" for d in selected_days])
 
-            # Спрашиваем уровень подготовки
-            from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+            # Проверяем есть ли история тренировок за последний месяц
+            from ..core.stats_calculator import StatsCalculator
+            calculator = StatsCalculator(user.id)
+            stats = calculator.get_month_stats()
 
-            keyboard = [
-                [InlineKeyboardButton("🟢 Новичок (бегаю < 6 мес)", callback_data="level_onboarding_beginner")],
-                [InlineKeyboardButton("🟡 Средний (6-24 мес)", callback_data="level_onboarding_intermediate")],
-                [InlineKeyboardButton("🔴 Опытный (> 2 года)", callback_data="level_onboarding_advanced")]
-            ]
+            if stats['trainings_count'] > 0:
+                # Есть история → не спрашиваем уровень, сразу время
+                await query.message.reply_text(
+                    f"✅ Вижу у тебя есть история тренировок ({stats['trainings_count']} за месяц)\n"
+                    f"Автоматически определю уровень подготовки\n\n"
+                    "⏱ Сколько времени у тебя на одну тренировку?\n\n"
+                    "Напиши в минутах (например: 60, 90, 120)\n"
+                    "Или диапазон времени (например: с 19 до 21)"
+                )
+                context.user_data['awaiting_time'] = True
+            else:
+                # Нет истории → спрашиваем уровень
+                from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
-            await query.message.reply_text(
-                "🏃 Какой у тебя опыт в беге?\n\n"
-                "Это нужно чтобы подобрать правильный объём и интенсивность тренировок",
-                reply_markup=InlineKeyboardMarkup(keyboard)
-            )
+                keyboard = [
+                    [InlineKeyboardButton("🟢 Новичок (бегаю < 6 мес)", callback_data="level_onboarding_beginner")],
+                    [InlineKeyboardButton("🟡 Средний (6-24 мес)", callback_data="level_onboarding_intermediate")],
+                    [InlineKeyboardButton("🔴 Опытный (> 2 года)", callback_data="level_onboarding_advanced")]
+                ]
+
+                await query.message.reply_text(
+                    "🏃 Какой у тебя опыт в беге?\n\n"
+                    "Нет истории тренировок, поэтому спрашиваю.\n"
+                    "Это нужно чтобы подобрать правильный объём и интенсивность тренировок",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
             return
 
         # Toggle дня
