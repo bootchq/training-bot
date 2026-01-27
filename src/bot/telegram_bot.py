@@ -78,6 +78,7 @@ class TrainingBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_race_type_selection, pattern="^racetype_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_distance_selection, pattern="^distance_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_days_selection, pattern="^trainday_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_level_selection, pattern="^level_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_stats_period, pattern="^stats_"))
@@ -1049,10 +1050,11 @@ class TrainingBot:
             goal_type = context.user_data.get('goal_type', 'fitness')
             db.save_user_goal(user.id, goal_type=goal_type, training_days=[f"day_{d}" for d in selected_days])
 
-            # Переходим к выбору времени
+            # Переходим к выбору длительности тренировки
             await query.message.reply_text(
-                "⏰ В какое время обычно тренируешься?\n\n"
-                "Напиши время (например: 07:00 или 19:30):"
+                "⏱ Сколько времени у тебя на одну тренировку?\n\n"
+                "Напиши в минутах (например: 60, 90, 120)\n"
+                "Или диапазон времени (например: с 19 до 21)"
             )
             context.user_data['awaiting_time'] = True
             return
@@ -1706,42 +1708,117 @@ class TrainingBot:
         user = db.get_or_create_user(telegram_id)
 
         # Парсим введённое время
+        text = update.message.text.strip().lower()
+        time_min = None
+
         try:
-            time_min = int(update.message.text.strip())
-
-            if time_min < 30 or time_min > 300:
-                await update.message.reply_text(
-                    "❌ Время должно быть от 30 до 300 минут\n\n"
-                    "Попробуй ещё раз или отправь /cancel"
-                )
-                return PLAN_TIME
-
+            # Пробуем распарсить как простое число
+            time_min = int(text)
         except ValueError:
+            # Пробуем распарсить "с X до Y"
+            import re
+
+            # Паттерны: "с 19 до 21", "19-21", "с 7 до 9"
+            pattern = r'(?:с\s*)?(\d{1,2})(?:\s*до\s*|\s*-\s*)(\d{1,2})'
+            match = re.search(pattern, text)
+
+            if match:
+                start_hour = int(match.group(1))
+                end_hour = int(match.group(2))
+
+                # Вычисляем разницу в часах
+                if end_hour > start_hour:
+                    hours_diff = end_hour - start_hour
+                else:
+                    # Через полночь (например, с 22 до 2)
+                    hours_diff = (24 - start_hour) + end_hour
+
+                time_min = hours_diff * 60
+
+                await update.message.reply_text(
+                    f"✅ Понял: {hours_diff} ч = {time_min} мин"
+                )
+
+        if time_min is None:
             await update.message.reply_text(
-                "❌ Не могу распознать число\n\n"
-                "Напиши просто число (например: 60, 90, 120)\n"
+                "❌ Не могу распознать время\n\n"
+                "Напиши:\n"
+                "• Просто число минут: 60, 90, 120\n"
+                "• Или диапазон: с 19 до 21\n\n"
                 "Или отправь /cancel для отмены"
             )
             return PLAN_TIME
 
+        if time_min < 30 or time_min > 300:
+            await update.message.reply_text(
+                "❌ Время должно быть от 30 до 300 минут (0.5-5 часов)\n\n"
+                "Попробуй ещё раз или отправь /cancel"
+            )
+            return PLAN_TIME
+
+        # Сохраняем время и спрашиваем про уровень подготовки
+        context.user_data['time_per_session'] = time_min
+
+        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
+        keyboard = [
+            [InlineKeyboardButton("🟢 Новичок (бегаю < 6 месяцев)", callback_data="level_beginner")],
+            [InlineKeyboardButton("🟡 Средний (6-24 месяца)", callback_data="level_intermediate")],
+            [InlineKeyboardButton("🔴 Опытный (бегаю > 2 лет)", callback_data="level_advanced")]
+        ]
+
+        await update.message.reply_text(
+            "🏃 Какой у тебя опыт в беге?\n\n"
+            "Это нужно чтобы адаптировать объём и интенсивность тренировок",
+            reply_markup=InlineKeyboardMarkup(keyboard)
+        )
+
+        context.user_data['awaiting_level'] = True
+        return PLAN_TIME
+
+    async def handle_level_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора уровня подготовки и генерация плана"""
+        from datetime import date
+        from ..core.plan_generator import PlanGenerator
+
+        query = update.callback_query
+        await query.answer()
+
+        # Извлекаем уровень
+        level = query.data.replace("level_", "")  # beginner/intermediate/advanced
+
         # Получаем сохранённые данные
         goal_data = context.user_data.get('goal_data')
         selected_days = context.user_data.get('selected_days', [])
+        time_min = context.user_data.get('time_per_session', 60)
 
-        await update.message.reply_text(
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        await query.message.edit_text(
             f"⏳ Генерирую индивидуальный план...\n\n"
             f"🎯 Цель: {goal_data['name']}\n"
             f"📅 Дней в неделю: {len(selected_days)}\n"
-            f"⏱ Время на тренировку: {time_min} мин"
+            f"⏱ Время на тренировку: {time_min} мин\n"
+            f"🏃 Уровень: {level}"
         )
 
-        # Генерируем план
+        # Генерируем план с учетом уровня
         generator = PlanGenerator(user.id)
+
+        # Применяем множитель времени в зависимости от уровня
+        if level == 'beginner':
+            adjusted_time = int(time_min * 0.85)  # -15%
+        elif level == 'advanced':
+            adjusted_time = int(time_min * 1.15)  # +15%
+        else:
+            adjusted_time = time_min
+
         trainings = generator.generate_detailed_plan(
             goal_distance=goal_data['distance'],
             goal_date=goal_data['date'],
             training_days=selected_days,
-            time_per_session=time_min,
+            time_per_session=adjusted_time,
             weeks=4,
             goal_type=goal_data.get('type', 'race')
         )
@@ -1749,7 +1826,7 @@ class TrainingBot:
         # Сохраняем в БД
         count = generator.save_plan_to_db(trainings)
 
-        await update.message.reply_text(
+        await query.message.reply_text(
             f"✅ План создан!\n\n"
             f"🎯 Цель: {goal_data['name']} ({goal_data['date'].strftime('%d.%m.%Y')})\n"
             f"📅 Сгенерировано тренировок: {count}\n"
@@ -1757,7 +1834,7 @@ class TrainingBot:
             "Используй /plan чтобы посмотреть план на неделю"
         )
 
-        logger.info(f"Пользователь {telegram_id} создал индивидуальный план для {goal_data['name']}")
+        logger.info(f"Пользователь {telegram_id} создал индивидуальный план для {goal_data['name']} (уровень: {level})")
         return ConversationHandler.END
 
     async def cancel_plan_creation(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
