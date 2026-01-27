@@ -140,6 +140,8 @@ class ReminderScheduler:
 
     def _check_all_missed_trainings(self):
         """Проверить всех пользователей на пропущенные тренировки"""
+        from ..core.plan_adjuster import create_plan_adjuster
+
         # Получаем всех пользователей с завершенным онбордингом
         users = db.get_all_onboarded_users()
 
@@ -162,6 +164,27 @@ class ReminderScheduler:
             if not has_training:
                 # Отправляем мотивационное сообщение
                 self._send_missed_training_message(user.telegram_id)
+
+            # Раз в неделю (по понедельникам) проверяем и корректируем план
+            if today_weekday == 1:
+                try:
+                    adjuster = create_plan_adjuster(user.id)
+                    result = adjuster.check_and_adjust_plan(include_ai_recommendations=True)
+
+                    # Если были значительные корректировки - уведомляем
+                    if result['adjusted_count'] > 0:
+                        ai_advice = result.get('ai_recommendations', result['suggestions']['message'])
+
+                        notification = (
+                            f"📊 Анализ плана тренировок\n\n"
+                            f"{ai_advice}\n\n"
+                            f"Скорректировано тренировок: {result['adjusted_count']}"
+                        )
+                        self._send_plan_adjustment_notification(user.telegram_id, notification)
+
+                    logger.info(f"План скорректирован для user={user.id}: {result['adjusted_count']} тренировок")
+                except Exception as e:
+                    logger.error(f"Ошибка корректировки плана для user={user.id}: {e}")
 
     def _user_has_training_today(self, user_id: int, date) -> bool:
         """Проверить, есть ли тренировка у пользователя на дату"""
@@ -190,6 +213,18 @@ class ReminderScheduler:
 
         loop.create_task(self.send_message(telegram_id, message))
         logger.info(f"📩 Отправлено сообщение о пропуске тренировки telegram_id={telegram_id}")
+
+    def _send_plan_adjustment_notification(self, telegram_id: int, message: str):
+        """Отправить уведомление о корректировке плана"""
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        loop.create_task(self.send_message(telegram_id, message))
+        logger.info(f"📊 Отправлено уведомление о корректировке плана telegram_id={telegram_id}")
 
     def remove_user_reminders(self, user_id: int):
         """Удалить все напоминания пользователя (публичный метод)"""

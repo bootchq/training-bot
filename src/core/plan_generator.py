@@ -119,7 +119,7 @@ class PlanGenerator:
             return 'advanced'
 
     def generate_detailed_plan(self, goal_distance: int, goal_date: date, training_days: List[int],
-                               time_per_session: int, weeks: int = 4) -> List[Dict[str, Any]]:
+                               time_per_session: int, weeks: int = 4, goal_type: str = 'race') -> List[Dict[str, Any]]:
         """
         Генерация детального плана тренировок с индивидуальными параметрами
 
@@ -129,6 +129,7 @@ class PlanGenerator:
             training_days: Список номеров дней недели (1=Пн, ..., 7=Вс)
             time_per_session: Время на одну тренировку (минуты)
             weeks: Количество недель плана
+            goal_type: Тип цели (race/trail/fitness)
 
         Returns:
             Список тренировок с детальным описанием
@@ -136,8 +137,22 @@ class PlanGenerator:
         trainings = []
         start_date = date.today()
 
+        # Определяем текущий уровень подготовки
+        current_level = self._estimate_current_level()
+        logger.info(f"Текущий уровень подготовки user={self.user_id}: {current_level}")
+
+        # Корректируем базовое время в зависимости от уровня
+        if current_level == 'beginner':
+            time_multiplier = 0.85  # Новички: -15% времени
+        elif current_level == 'advanced':
+            time_multiplier = 1.15  # Опытные: +15% времени
+        else:
+            time_multiplier = 1.0  # Средний уровень: без изменений
+
+        adjusted_time = int(time_per_session * time_multiplier)
+
         # Определяем типы тренировок по дням недели
-        workout_types = self._determine_workout_types(training_days, time_per_session)
+        workout_types = self._determine_workout_types(training_days, adjusted_time)
 
         # Периодизация: определяем фазы подготовки
         base_weeks = int(weeks * 0.6)  # 60% - базовый период
@@ -184,8 +199,10 @@ class PlanGenerator:
                 # Генерируем детальное описание
                 workout_details = self._generate_workout_details(
                     workout_type,
-                    time_per_session,
-                    week_multiplier
+                    adjusted_time,
+                    week_multiplier,
+                    goal_type=goal_type,
+                    goal_distance=goal_distance
                 )
 
                 training = {
@@ -242,7 +259,8 @@ class PlanGenerator:
 
         return workout_types
 
-    def _generate_workout_details(self, workout_type: str, base_time: int, multiplier: float) -> Dict[str, Any]:
+    def _generate_workout_details(self, workout_type: str, base_time: int, multiplier: float,
+                                  goal_type: str = 'race', goal_distance: int = 21) -> Dict[str, Any]:
         """
         Генерация детального описания тренировки
 
@@ -250,12 +268,32 @@ class PlanGenerator:
             workout_type: Тип тренировки
             base_time: Базовое время (минуты)
             multiplier: Множитель прогрессии
+            goal_type: Тип цели (race/trail/fitness)
+            goal_distance: Целевая дистанция (км)
 
         Returns:
             Словарь с деталями тренировки
         """
         # Применяем прогрессию к общему времени
         total_time = int(base_time * multiplier)
+
+        # Определяем базовый темп в зависимости от типа забега и дистанции
+        if goal_type == 'trail':
+            # Трейл: медленнее из-за набора высоты
+            base_pace = 6.5  # мин/км
+            pace_range = "6:00-7:30"
+        elif goal_distance >= 42:
+            # Марафон и ультра: средний темп
+            base_pace = 5.5  # мин/км
+            pace_range = "5:00-6:00"
+        elif goal_distance >= 21:
+            # Полумарафон: чуть быстрее
+            base_pace = 5.2  # мин/км
+            pace_range = "4:45-5:30"
+        else:
+            # Короткие дистанции: быстрее
+            base_pace = 5.0  # мин/км
+            pace_range = "4:30-5:15"
 
         # Адаптивные разминка/заминка в зависимости от длительности
         if total_time < 40:
@@ -279,64 +317,120 @@ class PlanGenerator:
         if workout_type == 'intervals':
             # Крейсовые интервалы
             interval_count = max(3, main_time // 12)  # По 12 мин на интервал с отдыхом
-            description = (
-                f"**Крейсовые интервалы**\n"
-                f"- {warmup} мин z2 (разминка)\n"
-                f"- {interval_count} × 2км в z3, между отрезками отдых 2 мин z1–z2\n"
-                f"- Заминка: {cooldown} мин z1–z2"
-            )
+
+            if goal_type == 'trail':
+                description = (
+                    f"**Интервалы в гору**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {interval_count} × подъем 3-5 мин в z3-z4, спуск легко\n"
+                    f"- Заминка: {cooldown} мин z1–z2\n"
+                    f"- 💡 Найди холм или лестницу для подъемов"
+                )
+            else:
+                description = (
+                    f"**Крейсовые интервалы**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {interval_count} × 2км в z3, между отрезками отдых 2 мин z1–z2\n"
+                    f"- Заминка: {cooldown} мин z1–z2"
+                )
             target_zone = 'Z2-Z3'
-            distance_km = round(total_time / 5.0, 1)  # 5 мин/км средний темп
+            distance_km = round(total_time / (base_pace * 0.95), 1)  # Интервалы чуть быстрее базового темпа
 
         elif workout_type == 'tempo':
             # Темповый бег
             tempo_time = int(main_time * 0.4)  # 40% от основного времени - темп
             recovery_time = main_time - tempo_time
-            description = (
-                f"**Темповый бег непрерывный**\n"
-                f"- {warmup} мин z2 (разминка)\n"
-                f"- {tempo_time} мин непрерывно в z3 (темповый бег)\n"
-                f"- {recovery_time} мин z2 (восстановление)\n"
-                f"- Заминка: {cooldown} мин z1–z2"
-            )
+
+            if goal_type == 'trail':
+                description = (
+                    f"**Темповый бег по холмам**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {tempo_time} мин в z3 (холмистая трасса)\n"
+                    f"- {recovery_time} мин z2 (восстановление)\n"
+                    f"- Заминка: {cooldown} мин z1–z2\n"
+                    f"- 💡 Цель: поддержание усилия на подъемах"
+                )
+            else:
+                description = (
+                    f"**Темповый бег непрерывный**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {tempo_time} мин непрерывно в z3 (темповый бег)\n"
+                    f"- {recovery_time} мин z2 (восстановление)\n"
+                    f"- Заминка: {cooldown} мин z1–z2"
+                )
             target_zone = 'Z2-Z3'
-            distance_km = round(total_time / 5.2, 1)  # 5:12 мин/км темп
+            distance_km = round(total_time / (base_pace * 0.92), 1)  # Темп чуть быстрее базового
 
         elif workout_type == 'long':
             # Длинная тренировка
             main_long = main_time
-            marathon_pace = 15  # Последние 15 мин - марафонский темп
-            description = (
-                f"**Длинная с марафонским темпом**\n"
-                f"- {warmup} мин z2 (разминка)\n"
-                f"- {main_long - marathon_pace} мин z2 (основная часть)\n"
-                f"- Последние {marathon_pace} мин: переход в z2–z3 (марафонский темп)\n"
-                f"- Заминка: {cooldown} мин z1–z2"
-            )
+
+            if goal_type == 'trail':
+                # Для трейла акцент на времени в ногах, не на темпе
+                description = (
+                    f"**Длинная трейловая**\n"
+                    f"- {warmup} мин легкая разминка\n"
+                    f"- {main_long} мин z2 (поиск холмов и троп)\n"
+                    f"- Заминка: {cooldown} мин z1\n"
+                    f"- 💡 Цель: время на ногах, не темп. Набор высоты приветствуется"
+                )
+                distance_km = round(total_time / (base_pace * 1.15), 1)  # Медленнее из-за рельефа
+            elif goal_distance >= 42:
+                # Марафон: длинные с марафонским темпом
+                marathon_pace = min(20, int(main_long * 0.2))  # 20% времени - марафонский темп
+                description = (
+                    f"**Длинная с марафонским темпом**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {main_long - marathon_pace} мин z2 (аэробная база)\n"
+                    f"- Последние {marathon_pace} мин: переход в z2–z3 (марафонский темп)\n"
+                    f"- Заминка: {cooldown} мин z1–z2\n"
+                    f"- 💡 Отработка целевого темпа на усталости"
+                )
+                distance_km = round(total_time / base_pace, 1)
+            else:
+                # Полумарафон: длинная в аэробной зоне
+                description = (
+                    f"**Длинная аэробная**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {main_long} мин z2 (комфортный темп)\n"
+                    f"- Заминка: {cooldown} мин z1–z2\n"
+                    f"- 💡 Держи разговорный темп"
+                )
+                distance_km = round(total_time / base_pace, 1)
             target_zone = 'Z2'
-            distance_km = round(total_time / 5.5, 1)  # 5:30 мин/км
 
         elif workout_type == 'recovery':
             # Восстановительная
             description = (
                 f"**Восстановительный бег**\n"
                 f"- {warmup} мин z1 (легкая разминка)\n"
-                f"- {main_time} мин z1–z2 (легкий бег)\n"
-                f"- Заминка: {cooldown} мин z1"
+                f"- {main_time} мин z1–z2 (очень легкий бег)\n"
+                f"- Заминка: {cooldown} мин z1\n"
+                f"- 💡 Темп медленнее обычного, фокус на восстановлении"
             )
             target_zone = 'Z1-Z2'
-            distance_km = round(total_time / 6.0, 1)  # 6 мин/км медленный
+            distance_km = round(total_time / (base_pace * 1.2), 1)  # Медленнее на 20%
 
         else:  # easy
             # Легкий бег
-            description = (
-                f"**Легкий аэробный бег**\n"
-                f"- {warmup} мин z2 (разминка)\n"
-                f"- {main_time} мин z2 (аэробный бег)\n"
-                f"- Заминка: {cooldown} мин z1–z2"
-            )
+            if goal_type == 'trail':
+                description = (
+                    f"**Легкий бег по тропам**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {main_time} мин z2 (комфортный темп, можно с подъемами)\n"
+                    f"- Заминка: {cooldown} мин z1–z2\n"
+                    f"- 💡 Адаптация к пересеченной местности"
+                )
+            else:
+                description = (
+                    f"**Легкий аэробный бег**\n"
+                    f"- {warmup} мин z2 (разминка)\n"
+                    f"- {main_time} мин z2 (аэробный бег)\n"
+                    f"- Заминка: {cooldown} мин z1–z2\n"
+                    f"- 💡 Комфортный разговорный темп"
+                )
             target_zone = 'Z2'
-            distance_km = round(total_time / 5.5, 1)  # 5:30 мин/км
+            distance_km = round(total_time / base_pace, 1)
 
         return {
             'description': f"{description}\n- **~{total_time} минут (~{distance_km}км)**",

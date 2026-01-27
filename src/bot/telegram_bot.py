@@ -926,6 +926,7 @@ class TrainingBot:
             goal_distance = settings.get('goal_distance_km')
             goal_date = settings.get('goal_date')
             training_days = settings.get('training_days')
+            goal_type = settings.get('goal_type', 'race')  # По умолчанию 'race'
 
             if not goal_distance or not goal_date or not training_days:
                 logger.warning(f"Недостаточно данных для плана: distance={goal_distance}, date={goal_date}, days={training_days}")
@@ -978,7 +979,8 @@ class TrainingBot:
                 goal_date=goal_date,
                 training_days=day_numbers,
                 time_per_session=time_per_session,
-                weeks=weeks_until_race
+                weeks=weeks_until_race,
+                goal_type=goal_type
             )
 
             # Сохраняем в БД
@@ -1585,9 +1587,9 @@ class TrainingBot:
 
         # Определяем цель
         goal_mapping = {
-            'plan_tarki': {'name': 'Тарки-Тау 50км', 'distance': 50, 'date': date(2026, 2, 15)},
-            'plan_marathon': {'name': 'Марафон 42км', 'distance': 42, 'date': date(2026, 3, 15)},
-            'plan_dwt': {'name': 'DWT 65км', 'distance': 65, 'date': date(2026, 4, 15)}
+            'plan_tarki': {'name': 'Тарки-Тау 50км', 'distance': 50, 'date': date(2026, 2, 15), 'type': 'trail'},
+            'plan_marathon': {'name': 'Марафон 42км', 'distance': 42, 'date': date(2026, 3, 15), 'type': 'race'},
+            'plan_dwt': {'name': 'DWT 65км', 'distance': 65, 'date': date(2026, 4, 15), 'type': 'trail'}
         }
 
         goal_data = goal_mapping.get(query.data)
@@ -1740,7 +1742,8 @@ class TrainingBot:
             goal_date=goal_data['date'],
             training_days=selected_days,
             time_per_session=time_min,
-            weeks=4
+            weeks=4,
+            goal_type=goal_data.get('type', 'race')
         )
 
         # Сохраняем в БД
