@@ -34,7 +34,9 @@ class User(Base):
     experience_level = Column(String, nullable=True)  # beginner / intermediate / advanced
     include_strength = Column(Boolean, nullable=True)  # силовые да/нет
     training_days = Column(JSON, nullable=True)  # ["mon", "wed", "fri"]
-    training_time = Column(String, nullable=True)  # "07:00" или "evening"
+    training_time = Column(String, nullable=True)  # "07:00" или "evening" (deprecated)
+    training_time_min = Column(Integer, nullable=True)  # Время на тренировку в минутах
+    fitness_level = Column(String, nullable=True)  # beginner / intermediate / advanced (явно выбранный)
     onboarding_completed = Column(Boolean, default=False)  # прошёл ли онбординг
     created_at = Column(DateTime, default=datetime.utcnow)
 
@@ -213,6 +215,17 @@ class Database:
                 cursor.execute("ALTER TABLE users ADD COLUMN training_days TEXT")  # JSON хранится как TEXT
                 cursor.execute("ALTER TABLE users ADD COLUMN training_time VARCHAR")
                 cursor.execute("ALTER TABLE users ADD COLUMN onboarding_completed BOOLEAN DEFAULT 0")
+                needs_migration = True
+
+            # Новые поля для времени тренировки и уровня подготовки
+            if 'training_time_min' not in columns:
+                logger.info("➕ Добавляю поле training_time_min в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN training_time_min INTEGER")
+                needs_migration = True
+
+            if 'fitness_level' not in columns:
+                logger.info("➕ Добавляю поле fitness_level в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN fitness_level VARCHAR")
                 needs_migration = True
 
             if needs_migration:
@@ -649,10 +662,11 @@ class Database:
 
             return user.google_refresh_token
 
-    def save_user_goal(self, user_id: int, goal_type: str, goal_distance_km: int = None,
+    def save_user_goal(self, user_id: int, goal_type: str = None, goal_distance_km: int = None,
                        goal_date=None, experience_level: str = None,
                        include_strength: bool = None, training_days: list = None,
-                       training_time: str = None) -> bool:
+                       training_time: str = None, training_time_min: int = None,
+                       fitness_level: str = None) -> bool:
         """
         Сохранить цель и настройки тренировок пользователя
 
@@ -674,7 +688,8 @@ class Database:
             if not user:
                 return False
 
-            user.goal_type = goal_type
+            if goal_type is not None:
+                user.goal_type = goal_type
             if goal_distance_km is not None:
                 user.goal_distance_km = goal_distance_km
             if goal_date is not None:
@@ -687,6 +702,10 @@ class Database:
                 user.training_days = training_days
             if training_time is not None:
                 user.training_time = training_time
+            if training_time_min is not None:
+                user.training_time_min = training_time_min
+            if fitness_level is not None:
+                user.fitness_level = fitness_level
             user.onboarding_completed = True
 
             logger.info(f"Сохранены настройки цели для пользователя {user_id}: {goal_type}")
@@ -716,6 +735,8 @@ class Database:
                 'include_strength': user.include_strength,
                 'training_days': user.training_days,
                 'training_time': user.training_time,
+                'training_time_min': user.training_time_min,
+                'fitness_level': user.fitness_level,
                 'onboarding_completed': user.onboarding_completed
             }
 

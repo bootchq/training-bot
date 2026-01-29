@@ -945,18 +945,13 @@ class TrainingBot:
                 logger.warning(f"Не удалось распарсить дни тренировок: {training_days}")
                 return False
 
-            # Определяем время на тренировку (по умолчанию 60 минут)
-            time_per_session = 60
-            training_time = settings.get('training_time')
-            if training_time:
-                # Пытаемся извлечь число минут из строки типа "60" или "19:00"
-                import re
-                minutes_match = re.search(r'(\d+)', training_time)
-                if minutes_match:
-                    extracted_time = int(minutes_match.group(1))
-                    # Если это похоже на минуты (30-240), используем
-                    if 30 <= extracted_time <= 240:
-                        time_per_session = extracted_time
+            # Определяем время на тренировку
+            time_per_session = settings.get('training_time_min', 60)  # По умолчанию 60 минут
+
+            # Валидация (должно быть 30-300 минут)
+            if not isinstance(time_per_session, int) or time_per_session < 30 or time_per_session > 300:
+                logger.warning(f"Некорректное время тренировки {time_per_session}, использую дефолт 60 мин")
+                time_per_session = 60
 
             # Рассчитываем количество недель до забега
             today = date.today()
@@ -1528,10 +1523,62 @@ class TrainingBot:
 
         # === ОНБОРДИНГ: ввод времени тренировок ===
         if context.user_data.get('awaiting_time'):
-            # Принимаем любой формат времени и завершаем онбординг
+            # Парсим введённое время
+            import re
+            time_min = None
+
+            try:
+                # Пробуем распарсить как простое число
+                time_min = int(message_text)
+            except ValueError:
+                # Пробуем распарсить "с X до Y" или "с X:MM до Y:MM"
+                # Паттерны: "с 19 до 21", "19-21", "с 19:10 до 20:40", "19:30-21:00"
+                pattern = r'(?:с\s*)?(\d{1,2})(?::(\d{2}))?(?:\s*до\s*|\s*-\s*)(\d{1,2})(?::(\d{2}))?'
+                match = re.search(pattern, message_text.lower())
+
+                if match:
+                    start_hour = int(match.group(1))
+                    start_min = int(match.group(2)) if match.group(2) else 0
+                    end_hour = int(match.group(3))
+                    end_min = int(match.group(4)) if match.group(4) else 0
+
+                    # Переводим в минуты от начала дня
+                    start_total = start_hour * 60 + start_min
+                    end_total = end_hour * 60 + end_min
+
+                    # Вычисляем разницу
+                    if end_total > start_total:
+                        time_min = end_total - start_total
+                    else:
+                        # Через полночь (например, с 22:00 до 02:00)
+                        time_min = (24 * 60 - start_total) + end_total
+
+                    # Формируем красивый вывод
+                    hours = time_min // 60
+                    mins = time_min % 60
+                    if mins > 0:
+                        time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
+                    else:
+                        time_str = f"{hours} ч"
+
+                    await update.message.reply_text(f"✅ Понял: {time_str} = {time_min} мин")
+
+            if time_min is None or time_min < 30 or time_min > 300:
+                await update.message.reply_text(
+                    "❌ Не могу распознать время или значение вне допустимого диапазона (30-300 мин)\n\n"
+                    "Напиши:\n"
+                    "• Просто число минут: 60, 90, 120\n"
+                    "• Или диапазон: с 19 до 21\n"
+                    "• Или с минутами: с 19:10 до 20:40"
+                )
+                return
+
+            # Сохраняем время в минутах
             goal_type = context.user_data.get('goal_type', 'fitness')
-            db.save_user_goal(user.id, goal_type=goal_type, training_time=message_text)
+            db.save_user_goal(user.id, goal_type=goal_type, training_time_min=time_min)
             context.user_data['awaiting_time'] = False
+
+            logger.info(f"Время тренировки для user={user.id}: {time_min} мин")
 
             # Настраиваем напоминания
             reminder_scheduler = get_reminder_scheduler()
@@ -1741,28 +1788,40 @@ class TrainingBot:
             # Пробуем распарсить как простое число
             time_min = int(text)
         except ValueError:
-            # Пробуем распарсить "с X до Y"
+            # Пробуем распарсить "с X до Y" или "с X:MM до Y:MM"
             import re
 
-            # Паттерны: "с 19 до 21", "19-21", "с 7 до 9"
-            pattern = r'(?:с\s*)?(\d{1,2})(?:\s*до\s*|\s*-\s*)(\d{1,2})'
+            # Паттерны: "с 19 до 21", "19-21", "с 19:10 до 20:40", "19:30-21:00"
+            pattern = r'(?:с\s*)?(\d{1,2})(?::(\d{2}))?(?:\s*до\s*|\s*-\s*)(\d{1,2})(?::(\d{2}))?'
             match = re.search(pattern, text)
 
             if match:
                 start_hour = int(match.group(1))
-                end_hour = int(match.group(2))
+                start_min = int(match.group(2)) if match.group(2) else 0
+                end_hour = int(match.group(3))
+                end_min = int(match.group(4)) if match.group(4) else 0
 
-                # Вычисляем разницу в часах
-                if end_hour > start_hour:
-                    hours_diff = end_hour - start_hour
+                # Переводим в минуты от начала дня
+                start_total = start_hour * 60 + start_min
+                end_total = end_hour * 60 + end_min
+
+                # Вычисляем разницу
+                if end_total > start_total:
+                    time_min = end_total - start_total
                 else:
-                    # Через полночь (например, с 22 до 2)
-                    hours_diff = (24 - start_hour) + end_hour
+                    # Через полночь (например, с 22:00 до 02:00)
+                    time_min = (24 * 60 - start_total) + end_total
 
-                time_min = hours_diff * 60
+                # Формируем красивый вывод
+                hours = time_min // 60
+                mins = time_min % 60
+                if mins > 0:
+                    time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
+                else:
+                    time_str = f"{hours} ч"
 
                 await update.message.reply_text(
-                    f"✅ Понял: {hours_diff} ч = {time_min} мин"
+                    f"✅ Понял: {time_str} = {time_min} мин"
                 )
 
         if time_min is None:
