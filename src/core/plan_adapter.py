@@ -174,59 +174,92 @@ class PlanAdapter:
 
         return changes
 
-    def adapt_on_wellness(self, wellness_date: date, rating: int) -> List[str]:
+    def adapt_on_wellness(
+        self,
+        wellness_date: date,
+        training_rating: int = 5,
+        wellness_rating: int = 2,
+        sleep_quality: str = 'ok',
+        pain_reported: bool = False
+    ) -> List[str]:
         """
-        Адаптация по самочувствию
-
-        Best practice: Комбинированный анализ HRV + wellness questionnaires
-        Не полагаться только на один показатель
-        Источник: nature.com/articles/s41598-025-13540-z
+        Адаптация по самочувствию с объяснением причины
 
         Args:
             wellness_date: Дата опроса
-            rating: Оценка самочувствия (1-10)
+            training_rating: Оценка тренировки (1-10)
+            wellness_rating: Самочувствие (1=усталость, 2=норма, 3=отлично)
+            sleep_quality: Качество сна (bad/ok/good)
+            pain_reported: Есть ли боль
 
         Returns:
-            Список изменений
+            Список изменений с причинами
         """
         changes = []
+        reasons = []
+        total_reduction = 0
 
         next_training = self._get_next_training(wellness_date)
-
         if not next_training:
             return changes
 
-        # Проверяем sleep_quality и pain из последнего опроса для контекста
-        # (в будущем можно добавить HRV из Garmin)
+        # 1. Плохой сон — главный фактор восстановления
+        if sleep_quality == 'bad':
+            total_reduction += 0.20
+            reasons.append("плохой сон")
+            logger.info(f"Wellness: плохой сон -> -20%")
 
-        if rating <= 3:
-            # Очень плохое самочувствие (1-3) - снижаем на 30% или делаем rest day
+        # 2. Усталость (wellness_rating=1)
+        if wellness_rating == 1:
+            total_reduction += 0.15
+            reasons.append("усталость")
+            logger.info(f"Wellness: усталость -> -15%")
+
+        # 3. Боль — серьёзный сигнал
+        if pain_reported:
+            total_reduction += 0.25
+            reasons.append("боль/дискомфорт")
+            logger.info(f"Wellness: боль -> -25%")
+
+        # 4. Плохая оценка тренировки (<=4)
+        if training_rating <= 4:
+            total_reduction += 0.10
+            reasons.append(f"тяжёлая тренировка ({training_rating}/10)")
+            logger.info(f"Wellness: низкая оценка {training_rating} -> -10%")
+
+        # Применяем адаптацию
+        if total_reduction >= 0.40:
+            # Критично: меняем на лёгкую или отдых
             if next_training.type in ['tempo', 'intervals', 'long']:
-                # Тяжелую тренировку меняем на лёгкую
+                reason_text = ", ".join(reasons)
                 db.update_training_plan(
                     next_training.id,
                     type='easy',
-                    description=f"[АДАПТИРОВАНО] Изменено на лёгкую из-за плохого самочувствия ({rating}/10). Было: {next_training.type}"
+                    description=f"[АДАПТИРОВАНО] Заменено на лёгкую ({reason_text}). Было: {next_training.type}"
                 )
-                changes.append(f"Тренировка изменена на лёгкую из-за очень низкого самочувствия ({rating}/10)")
+                changes.append(f"Заменил {next_training.type} на лёгкую — {reason_text}")
             else:
-                # Лёгкую снижаем на 30%
-                self._reduce_training(next_training, reduction=0.3)
-                changes.append(f"Нагрузка снижена на 30% из-за очень низкого самочувствия ({rating}/10)")
+                self._reduce_training(next_training, reduction=0.30)
+                changes.append(f"Снизил нагрузку на 30% — {', '.join(reasons)}")
 
-        elif rating <= 5:
-            # Плохое самочувствие (4-5) - снижаем на 20%
-            self._reduce_training(next_training, reduction=0.2)
-            changes.append(f"Нагрузка снижена на 20% из-за низкого самочувствия ({rating}/10)")
+        elif total_reduction >= 0.20:
+            # Умеренно: снижаем на 20%
+            reason_text = ", ".join(reasons)
+            self._reduce_training(next_training, reduction=0.20)
+            changes.append(f"Снизил нагрузку на 20% — {reason_text}")
 
-        elif rating >= 9:
-            # Отличное самочувствие (9-10) - можно добавить 10%
-            # НО только если это не восстановительная тренировка
-            if next_training.type not in ['easy', 'recovery']:
-                self._increase_training(next_training, increase=0.1)
-                changes.append(f"Нагрузка увеличена на 10% (отличное самочувствие: {rating}/10)")
+        elif total_reduction >= 0.10:
+            # Немного: снижаем на 10%
+            reason_text = ", ".join(reasons)
+            self._reduce_training(next_training, reduction=0.10)
+            changes.append(f"Снизил нагрузку на 10% — {reason_text}")
 
-        # Рейтинги 6-8: нормальное самочувствие, план не меняется
+        # Отличное самочувствие — можно добавить
+        if (wellness_rating == 3 and sleep_quality == 'good' and
+            training_rating >= 8 and not pain_reported):
+            if next_training.type not in ['easy', 'recovery', 'long']:
+                self._increase_training(next_training, increase=0.10)
+                changes.append("Увеличил нагрузку на 10% — отличное восстановление")
 
         return changes
 

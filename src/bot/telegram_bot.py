@@ -147,15 +147,17 @@ class TrainingBot:
             self.user_schedulers[user.id] = user_scheduler
             logger.info(f"Scheduler запущен для пользователя {telegram_id}")
 
-        welcome_text = """
-🏃 С возвращением!
+        # Получаем рекомендацию на сегодня
+        daily_rec = self._get_daily_recommendation(user.id)
 
-Автоматически:
-• 00:00 - анализ выполнения + адаптация + опрос
-• 01:00 - отправка плана на неделю
+        welcome_text = "🏃 С возвращением!"
 
-Используй кнопки ниже для быстрого доступа или команды:
-/sync /stats /plan /calendar /help
+        if daily_rec:
+            welcome_text += daily_rec
+
+        welcome_text += """
+
+Команды: /sync /stats /plan /calendar /zones /methodology
 """
         # Inline кнопки для быстрого доступа
         keyboard = [
@@ -286,6 +288,10 @@ class TrainingBot:
             )
             return
 
+        # Получаем текущий VDOT для сравнения
+        old_settings = db.get_user_settings(user.id)
+        old_vdot = old_settings.get('vdot') if old_settings else None
+
         await update.message.reply_text("📥 Синхронизирую тренировки за последние 60 дней + физиологические данные...")
 
         try:
@@ -322,13 +328,32 @@ class TrainingBot:
                 result_lines.append(f"\n**Физиологические данные:**")
                 result_lines.append(f"- LTHR: {lthr} уд/мин")
 
+            # Проверяем рост VDOT
+            vdot_changed = False
             if vdot:
-                result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})")
+                if old_vdot and vdot > old_vdot:
+                    delta = vdot - old_vdot
+                    result_lines.append(f"- VDOT: {vdot:.0f} (было {old_vdot:.0f}, **+{delta:.1f}**)")
+                    vdot_changed = True
+                else:
+                    result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})")
 
             await update.message.reply_text("\n".join(result_lines), parse_mode='Markdown')
 
-            # Если есть VDOT, показываем персонализированные темпы
-            if vdot and vdot_source and vdot_time:
+            # Если VDOT вырос — показываем обновлённые темпы
+            if vdot_changed:
+                from ..core.vdot_calculator import get_training_paces
+                paces = get_training_paces(vdot)
+                if paces:
+                    pace_text = "🚀 **Темпы пересчитаны!**\n\n"
+                    pace_text += f"• Easy: {paces.get('E', 'N/A')}\n"
+                    pace_text += f"• Threshold: {paces.get('T', 'N/A')}\n"
+                    pace_text += f"• Interval: {paces.get('I', 'N/A')}\n"
+                    pace_text += f"\nНовые темпы применяются к будущим тренировкам"
+                    await update.message.reply_text(pace_text, parse_mode='Markdown')
+
+            # Если VDOT новый (не было раньше), показываем саммари
+            elif vdot and vdot_source and vdot_time and not old_vdot:
                 summary = format_vdot_summary(vdot, vdot_source, vdot_time)
                 await update.message.reply_text(summary, parse_mode='Markdown')
 
@@ -1386,6 +1411,63 @@ class TrainingBot:
     # === Внутренние методы для quick actions ===
     # Эти методы принимают telegram_id и message напрямую,
     # что позволяет вызывать их как из команд, так и из callback кнопок
+
+    def _get_daily_recommendation(self, user_id: int) -> str:
+        """
+        Получить рекомендацию на сегодня
+
+        Returns:
+            Текст рекомендации или пустая строка
+        """
+        from datetime import date, timedelta
+
+        today = date.today()
+
+        # Получаем план на сегодня
+        today_plan = db.get_plan_for_date(user_id, today)
+        if not today_plan:
+            return ""
+
+        # Получаем последний wellness опрос
+        wellness = db.get_latest_wellness(user_id)
+
+        # Тип тренировки на русском
+        type_names = {
+            'easy': 'Лёгкая',
+            'long': 'Длинная',
+            'tempo': 'Темповая',
+            'intervals': 'Интервалы',
+            'recovery': 'Восстановление'
+        }
+        type_ru = type_names.get(today_plan.type, today_plan.type)
+
+        recommendation = f"\n\n📅 **Сегодня:** {type_ru}"
+
+        if today_plan.distance_km:
+            recommendation += f" • {today_plan.distance_km:.1f} км"
+        if today_plan.duration_min:
+            recommendation += f" • {today_plan.duration_min} мин"
+
+        # Если есть недавний wellness с проблемами — предупреждаем
+        if wellness and wellness.date >= today - timedelta(days=2):
+            warnings = []
+
+            if wellness.sleep_quality == 'bad':
+                warnings.append("плохой сон")
+            if wellness.wellness_rating == 1:
+                warnings.append("усталость")
+            if wellness.pain_reported:
+                warnings.append("боль")
+
+            if warnings:
+                recommendation += f"\n⚠️ Учтено: {', '.join(warnings)}"
+                recommendation += " — нагрузка снижена"
+
+        # Если интенсивная тренировка — напоминаем
+        if today_plan.type in ['intervals', 'tempo']:
+            recommendation += "\n💪 Готов к интенсиву?"
+
+        return recommendation
 
     async def _handle_stats(self, telegram_id: int, message):
         """Внутренняя логика статистики"""

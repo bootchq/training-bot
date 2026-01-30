@@ -553,6 +553,21 @@ class Database:
             logger.info(f"Сохранён опрос самочувствия для пользователя {user_id} на {survey_date}")
             return True
 
+    def get_latest_wellness(self, user_id: int):
+        """
+        Получить последний опрос самочувствия
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            WellnessSurvey или None
+        """
+        with self.get_session() as session:
+            return session.query(WellnessSurvey).filter_by(
+                user_id=user_id
+            ).order_by(WellnessSurvey.date.desc()).first()
+
     def save_garmin_credentials(self, telegram_id: int, email: str, password: str) -> bool:
         """
         Сохранить учетные данные Garmin для пользователя

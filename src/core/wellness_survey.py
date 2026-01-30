@@ -194,12 +194,15 @@ class WellnessSurvey:
         survey_date = survey['date']
         answers = survey['answers']
 
-        # Получаем оценку тренировки (используем как wellness_rating для адаптации)
-        training_rating = answers.get('training_rating', 5)
-
-        # Адаптируем план
+        # Адаптируем план с полными данными опроса
         adapter = PlanAdapter(user_id)
-        changes = adapter.adapt_on_wellness(survey_date, rating=training_rating)
+        changes = adapter.adapt_on_wellness(
+            wellness_date=survey_date,
+            training_rating=answers.get('training_rating', 5),
+            wellness_rating=answers.get('wellness_rating', 2),  # 1-3
+            sleep_quality=answers.get('sleep_quality', 'ok'),  # bad/ok/good
+            pain_reported=answers.get('pain_reported', False)
+        )
 
         return changes
 
