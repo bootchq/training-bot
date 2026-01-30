@@ -8,7 +8,7 @@
 - Разгрузочные недели (каждая 4-я: -25%)
 - Оптимальные протоколы интервалов (4×5 мин для VO2max)
 """
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 from typing import List, Dict, Any, Optional
 from ..database.db import db
 from ..utils.logger import logger
@@ -51,7 +51,18 @@ class PlanGenerator:
             Список тренировок с детальным описанием
         """
         trainings = []
-        start_date = date.today()
+
+        # Cutoff 20:00: после 20:00 сегодняшний день не включаем в план
+        now = datetime.now()
+        if now.hour >= 20:
+            # После 20:00 — "сегодня" для плана = завтра
+            effective_today = date.today() + timedelta(days=1)
+        else:
+            effective_today = date.today()
+
+        # Начало текущей недели (понедельник)
+        # weekday(): 0=Пн, 6=Вс
+        week_start = effective_today - timedelta(days=effective_today.weekday())
 
         # Определяем уровень подготовки
         current_level = self._get_fitness_level(fitness_level)
@@ -71,10 +82,13 @@ class PlanGenerator:
             week_multiplier = self._get_week_multiplier(week_num, weeks, is_recovery_week)
 
             for day_num in training_days:
-                day_offset = (day_num - 1) % 7
-                training_date = start_date + timedelta(days=(week_num * 7) + day_offset)
+                # day_num: 1=Пн, 7=Вс -> day_offset: 0=Пн, 6=Вс
+                day_offset = day_num - 1
+                # Дата = понедельник недели + offset недели + offset дня
+                training_date = week_start + timedelta(days=(week_num * 7) + day_offset)
 
-                if training_date < date.today() or training_date > goal_date:
+                # Пропускаем даты в прошлом и после цели
+                if training_date < effective_today or training_date > goal_date:
                     continue
 
                 # Тип тренировки из расписания 80/20
@@ -89,10 +103,26 @@ class PlanGenerator:
                 if is_recovery_week and workout_type in ['intervals', 'vo2max']:
                     workout_type = 'easy'
 
+                # Определяем выходной (Сб=5, Вс=6 в weekday())
+                is_weekend = training_date.weekday() >= 5
+
+                # Корректировка времени по дню недели и типу тренировки
+                # Будни: максимум 90 мин
+                # Выходные + long: 120-150 мин
+                if workout_type == 'long' and is_weekend:
+                    # Long run в выходной: 120-150 мин
+                    session_time = min(150, max(120, adjusted_time))
+                elif is_weekend:
+                    # Обычная тренировка в выходной: используем базовое время
+                    session_time = adjusted_time
+                else:
+                    # Будни: максимум 90 мин
+                    session_time = min(90, adjusted_time)
+
                 # Генерируем детали тренировки
                 workout_details = self._generate_workout_details(
                     workout_type=workout_type,
-                    base_time=adjusted_time,
+                    base_time=session_time,
                     multiplier=week_multiplier,
                     goal_type=goal_type,
                     goal_distance=goal_distance,
@@ -106,6 +136,7 @@ class PlanGenerator:
                     'distance_km': workout_details['distance_km'],
                     'target_zone': workout_details['target_zone'],
                     'description': workout_details['description'],
+                    'goal': self._get_workout_goal(workout_type),
                     'week_num': week_num + 1,
                     'is_recovery_week': is_recovery_week
                 }
@@ -142,6 +173,19 @@ class PlanGenerator:
             'advanced': 1.15
         }
         return multipliers.get(level, 1.0)
+
+    def _get_workout_goal(self, workout_type: str) -> str:
+        """Получить цель тренировки для отображения пользователю"""
+        goals = {
+            'intervals': "Цель: Повышение VO2max — рост выносливости",
+            'vo2max': "Цель: Повышение VO2max — рост выносливости",
+            'tempo': "Цель: Развитие порогового темпа — увеличение скорости",
+            'threshold': "Цель: Развитие порогового темпа — увеличение скорости",
+            'long': "Цель: Развитие аэробной базы — выносливость на длинных дистанциях",
+            'easy': "Цель: Аэробная база и восстановление — подготовка к нагрузкам",
+            'recovery': "Цель: Активное восстановление — улучшение кровообращения"
+        }
+        return goals.get(workout_type, "Цель: Общая физическая подготовка")
 
     def _get_week_multiplier(self, week_num: int, total_weeks: int, is_recovery_week: bool) -> float:
         """

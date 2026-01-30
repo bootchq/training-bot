@@ -84,6 +84,7 @@ class TrainingBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_days_selection, pattern="^trainday_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_level_onboarding, pattern="^level_onboarding_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_level_selection, pattern="^level_"))
+        self.app.add_handler(CallbackQueryHandler(self.handle_start_time_selection, pattern="^starttime_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_stats_period, pattern="^stats_"))
@@ -548,11 +549,22 @@ class TrainingBot:
             4: "Пятница", 5: "Суббота", 6: "Воскресенье"
         }
 
+        # Получаем настройки времени старта
+        settings = db.get_user_settings(user.id)
+        start_time_weekday = settings.get('start_time_weekday', '07:00') if settings else '07:00'
+        start_time_weekend = settings.get('start_time_weekend', '09:00') if settings else '09:00'
+
         for plan in plans:
             day_name = days_ru.get(plan.date.weekday(), "")
+            is_weekend = plan.date.weekday() >= 5
+            start_time = start_time_weekend if is_weekend else start_time_weekday
 
             # Формируем детальное сообщение для тренировки
-            plan_text = f"**{day_name} {plan.date.strftime('%d.%m')}**\n\n"
+            plan_text = f"**{day_name} {plan.date.strftime('%d.%m')}** | Старт: {start_time}\n\n"
+
+            # Добавляем цель тренировки
+            if hasattr(plan, 'goal') and plan.goal:
+                plan_text += f"🎯 {plan.goal}\n\n"
 
             # Добавляем описание (если есть детальное)
             if plan.description:
@@ -1793,47 +1805,33 @@ class TrainingBot:
             goal_type = context.user_data.get('goal_type', 'fitness')
             db.save_user_goal(user.id, goal_type=goal_type, training_time_min=time_min)
             context.user_data['awaiting_time'] = False
+            context.user_data['time_per_session'] = time_min
 
             logger.info(f"Время тренировки для user={user.id}: {time_min} мин")
 
-            # Настраиваем напоминания
-            reminder_scheduler = get_reminder_scheduler()
-            if reminder_scheduler:
-                reminder_scheduler.schedule_user_reminders(user.id)
-                logger.info(f"🔔 Напоминания настроены для user={user.id}")
-
-            # Автосоздание плана для забегов
-            plan_created = False
-            if goal_type in ['race', 'trail']:
-                logger.info(f"Автосоздание плана для забега user={user.id}")
-                plan_created = await self._auto_create_race_plan(user.id, update.message)
-
-            if plan_created:
-                await update.message.reply_text(
-                    "🎉 Настройка завершена!\n\n"
-                    "✅ План тренировок создан и готов к использованию\n\n"
-                    "Теперь бот будет:\n"
-                    "• Показывать план на неделю (/plan)\n"
-                    "• Напоминать о тренировках\n"
-                    "• Анализировать твой прогресс (/stats)\n"
-                    "• Синхронизировать с Garmin (/sync)\n\n"
-                    "Или просто напиши мне — я помогу скорректировать тренировки!"
-                )
-            else:
-                await update.message.reply_text(
-                    "🎉 Настройка завершена!\n\n"
-                    "Теперь бот будет:\n"
-                    "• Присылать план тренировок\n"
-                    "• Напоминать о тренировках\n"
-                    "• Анализировать твой прогресс\n\n"
-                    "Команды:\n"
-                    "/plan — Создать/посмотреть план\n"
-                    "/sync — Синхронизация с Garmin\n"
-                    "/stats — Статистика\n\n"
-                    "Или просто напиши мне — я помогу скорректировать тренировки!"
-                )
-
-            logger.info(f"✅ Онбординг завершён для user={telegram_id}")
+            # Спрашиваем время старта в будни
+            keyboard = [
+                [
+                    InlineKeyboardButton("06:00", callback_data="starttime_wd_06:00"),
+                    InlineKeyboardButton("07:00", callback_data="starttime_wd_07:00"),
+                    InlineKeyboardButton("08:00", callback_data="starttime_wd_08:00"),
+                ],
+                [
+                    InlineKeyboardButton("12:00", callback_data="starttime_wd_12:00"),
+                    InlineKeyboardButton("18:00", callback_data="starttime_wd_18:00"),
+                    InlineKeyboardButton("19:00", callback_data="starttime_wd_19:00"),
+                ],
+                [
+                    InlineKeyboardButton("20:00", callback_data="starttime_wd_20:00"),
+                    InlineKeyboardButton("21:00", callback_data="starttime_wd_21:00"),
+                ]
+            ]
+            await update.message.reply_text(
+                "🕐 Во сколько обычно бегаешь в **будни**?\n\n"
+                "Выбери примерное время старта:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
             return
 
         logger.info(f"💬 AI-чат от user={telegram_id}: {message_text[:50]}...")
@@ -2076,6 +2074,97 @@ class TrainingBot:
 
         context.user_data['awaiting_level'] = True
         return PLAN_TIME
+
+    async def handle_start_time_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Обработка выбора времени старта тренировок (будни/выходные)"""
+        query = update.callback_query
+        await query.answer()
+
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        # Парсим callback: starttime_wd_07:00 или starttime_we_09:00
+        data = query.data.replace("starttime_", "")
+        day_type, time_value = data.split("_", 1)
+
+        if day_type == "wd":
+            # Сохранили время для будней, теперь спрашиваем выходные
+            db.save_user_goal(user.id, start_time_weekday=time_value)
+            context.user_data['start_time_weekday'] = time_value
+
+            keyboard = [
+                [
+                    InlineKeyboardButton("07:00", callback_data="starttime_we_07:00"),
+                    InlineKeyboardButton("08:00", callback_data="starttime_we_08:00"),
+                    InlineKeyboardButton("09:00", callback_data="starttime_we_09:00"),
+                ],
+                [
+                    InlineKeyboardButton("10:00", callback_data="starttime_we_10:00"),
+                    InlineKeyboardButton("11:00", callback_data="starttime_we_11:00"),
+                    InlineKeyboardButton("12:00", callback_data="starttime_we_12:00"),
+                ]
+            ]
+            await query.message.edit_text(
+                f"✅ Будни: {time_value}\n\n"
+                "🕐 А в **выходные** во сколько бегаешь?\n\n"
+                "Выбери примерное время старта:",
+                reply_markup=InlineKeyboardMarkup(keyboard),
+                parse_mode='Markdown'
+            )
+        else:
+            # day_type == "we" — сохранили время для выходных, завершаем онбординг
+            db.save_user_goal(user.id, start_time_weekend=time_value)
+            context.user_data['start_time_weekend'] = time_value
+
+            weekday_time = context.user_data.get('start_time_weekday', '07:00')
+
+            await query.message.edit_text(
+                f"✅ Время старта сохранено:\n"
+                f"• Будни: {weekday_time}\n"
+                f"• Выходные: {time_value}\n\n"
+                "⏳ Завершаю настройку..."
+            )
+
+            # Продолжаем с созданием плана
+            await self._finish_onboarding(user.id, context, query.message)
+
+    async def _finish_onboarding(self, user_id: int, context: ContextTypes.DEFAULT_TYPE, message):
+        """Завершение онбординга: напоминания и создание плана"""
+        # Настраиваем напоминания
+        reminder_scheduler = get_reminder_scheduler()
+        if reminder_scheduler:
+            reminder_scheduler.schedule_user_reminders(user_id)
+            logger.info(f"🔔 Напоминания настроены для user={user_id}")
+
+        # Автосоздание плана для забегов
+        goal_type = context.user_data.get('goal_type', 'fitness')
+        plan_created = False
+
+        if goal_type in ['race', 'trail']:
+            logger.info(f"Автосоздание плана для забега user={user_id}")
+            plan_created = await self._auto_create_race_plan(user_id, message)
+
+        if plan_created:
+            await message.reply_text(
+                "🎉 Настройка завершена!\n\n"
+                "✅ План тренировок создан и готов к использованию\n\n"
+                "Теперь бот будет:\n"
+                "• Показывать план на неделю (/plan)\n"
+                "• Напоминать о тренировках\n"
+                "• Спрашивать самочувствие после тренировок\n\n"
+                "Или просто напиши мне — я помогу скорректировать тренировки!"
+            )
+        else:
+            await message.reply_text(
+                "🎉 Отлично, всё настроено!\n\n"
+                "Теперь бот будет:\n"
+                "• Показывать план на неделю (/plan)\n"
+                "• Напоминать о тренировках\n"
+                "• Спрашивать самочувствие после тренировок\n\n"
+                "Или просто напиши мне — я помогу скорректировать тренировки!"
+            )
+
+        logger.info(f"Онбординг завершён для user={user_id}")
 
     async def handle_level_onboarding(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка выбора уровня подготовки в онбординге"""

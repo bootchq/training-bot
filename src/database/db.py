@@ -37,6 +37,8 @@ class User(Base):
     training_time = Column(String, nullable=True)  # "07:00" или "evening" (deprecated)
     training_time_min = Column(Integer, nullable=True)  # Время на тренировку в минутах
     fitness_level = Column(String, nullable=True)  # beginner / intermediate / advanced (явно выбранный)
+    start_time_weekday = Column(String, nullable=True)  # Время старта в будни "07:00"
+    start_time_weekend = Column(String, nullable=True)  # Время старта в выходные "09:00"
     onboarding_completed = Column(Boolean, default=False)  # прошёл ли онбординг
     # Персонализация тренировок (из Garmin)
     lthr = Column(Integer, nullable=True)  # Lactate Threshold Heart Rate
@@ -81,6 +83,7 @@ class TrainingPlan(Base):
     duration_min = Column(Integer)
     target_zone = Column(String)
     description = Column(String)
+    goal = Column(String, nullable=True)  # Цель тренировки
     is_completed = Column(Boolean, default=False)
 
     __table_args__ = (
@@ -244,6 +247,22 @@ class Database:
                 cursor.execute("ALTER TABLE users ADD COLUMN garmin_synced_at DATETIME")
                 needs_migration = True
 
+            # Поля для времени старта тренировок
+            if 'start_time_weekday' not in columns:
+                logger.info("➕ Добавляю поля времени старта (start_time_weekday, start_time_weekend)")
+                cursor.execute("ALTER TABLE users ADD COLUMN start_time_weekday VARCHAR")
+                cursor.execute("ALTER TABLE users ADD COLUMN start_time_weekend VARCHAR")
+                needs_migration = True
+
+            # Проверяем таблицу training_plan
+            cursor.execute("PRAGMA table_info(training_plan)")
+            plan_columns = [col[1] for col in cursor.fetchall()]
+
+            if plan_columns and 'goal' not in plan_columns:
+                logger.info("➕ Добавляю поле goal в таблицу training_plan")
+                cursor.execute("ALTER TABLE training_plan ADD COLUMN goal VARCHAR")
+                needs_migration = True
+
             if needs_migration:
                 conn.commit()
                 logger.info("✅ Миграция базы данных успешно применена")
@@ -344,11 +363,12 @@ class Database:
                 plan = TrainingPlan(
                     user_id=user_id,
                     date=training_data['date'],
-                    type=training_data.get('workout_type', 'easy'),
+                    type=training_data.get('type') or training_data.get('workout_type', 'easy'),
                     distance_km=training_data.get('distance_km'),
                     duration_min=training_data.get('duration_min'),
                     target_zone=training_data.get('target_zone'),
                     description=training_data.get('description', ''),
+                    goal=training_data.get('goal'),
                     is_completed=False
                 )
                 session.add(plan)
@@ -697,7 +717,8 @@ class Database:
                        goal_date=None, experience_level: str = None,
                        include_strength: bool = None, training_days: list = None,
                        training_time: str = None, training_time_min: int = None,
-                       fitness_level: str = None) -> bool:
+                       fitness_level: str = None,
+                       start_time_weekday: str = None, start_time_weekend: str = None) -> bool:
         """
         Сохранить цель и настройки тренировок пользователя
 
@@ -737,6 +758,10 @@ class Database:
                 user.training_time_min = training_time_min
             if fitness_level is not None:
                 user.fitness_level = fitness_level
+            if start_time_weekday is not None:
+                user.start_time_weekday = start_time_weekday
+            if start_time_weekend is not None:
+                user.start_time_weekend = start_time_weekend
             user.onboarding_completed = True
 
             logger.info(f"Сохранены настройки цели для пользователя {user_id}: {goal_type}")
@@ -768,6 +793,8 @@ class Database:
                 'training_time': user.training_time,
                 'training_time_min': user.training_time_min,
                 'fitness_level': user.fitness_level,
+                'start_time_weekday': user.start_time_weekday,
+                'start_time_weekend': user.start_time_weekend,
                 'onboarding_completed': user.onboarding_completed,
                 'lthr': user.lthr,
                 'vdot': user.vdot,
@@ -893,6 +920,8 @@ class Database:
             user.training_time = None
             user.training_time_min = None
             user.fitness_level = None
+            user.start_time_weekday = None
+            user.start_time_weekend = None
             user.lthr = None
             user.vdot = None
             user.vdot_source = None
