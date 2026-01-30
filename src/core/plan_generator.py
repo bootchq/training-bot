@@ -60,9 +60,15 @@ class PlanGenerator:
         else:
             effective_today = date.today()
 
-        # Начало текущей недели (понедельник)
-        # weekday(): 0=Пн, 6=Вс
-        week_start = effective_today - timedelta(days=effective_today.weekday())
+        # Для каждого дня недели находим ближайшую дату >= effective_today
+        # day_num: 1=Пн, 7=Вс → Python weekday: 0=Пн, 6=Вс
+        def next_weekday(from_date: date, day_num: int) -> date:
+            """Найти ближайшую дату с этим днём недели"""
+            target_weekday = day_num - 1  # Конвертируем в Python формат
+            days_ahead = target_weekday - from_date.weekday()
+            if days_ahead < 0:  # Уже прошёл на этой неделе
+                days_ahead += 7
+            return from_date + timedelta(days=days_ahead)
 
         # Определяем уровень подготовки
         current_level = self._get_fitness_level(fitness_level)
@@ -82,13 +88,12 @@ class PlanGenerator:
             week_multiplier = self._get_week_multiplier(week_num, weeks, is_recovery_week)
 
             for day_num in training_days:
-                # day_num: 1=Пн, 7=Вс -> day_offset: 0=Пн, 6=Вс
-                day_offset = day_num - 1
-                # Дата = понедельник недели + offset недели + offset дня
-                training_date = week_start + timedelta(days=(week_num * 7) + day_offset)
+                # Находим ближайшую дату этого дня недели + смещение на нужную неделю
+                base_date = next_weekday(effective_today, day_num)
+                training_date = base_date + timedelta(days=week_num * 7)
 
-                # Пропускаем даты в прошлом и после цели
-                if training_date < effective_today or training_date > goal_date:
+                # Пропускаем даты после цели
+                if training_date > goal_date:
                     continue
 
                 # Тип тренировки из расписания 80/20
