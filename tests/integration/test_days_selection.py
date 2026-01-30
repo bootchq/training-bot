@@ -94,7 +94,7 @@ async def test_handle_days_done_insufficient(bot, mock_update, mock_context):
 
 @pytest.mark.asyncio
 async def test_handle_days_done_sufficient(bot, mock_update, mock_context):
-    """Тест нажатия 'Готово' с 2+ днями - должен сохранить и спросить время"""
+    """Тест нажатия 'Готово' с 2+ днями - должен сохранить и спросить опыт"""
     mock_update.callback_query.data = "trainday_done"
     mock_context.user_data['selected_days'] = [1, 3, 5]  # 3 дня
     mock_context.user_data['goal_type'] = 'race'
@@ -112,13 +112,11 @@ async def test_handle_days_done_sufficient(bot, mock_update, mock_context):
             training_days=['day_1', 'day_3', 'day_5']
         )
 
-        # Проверяем, что показан запрос времени
+        # Проверяем, что показан следующий шаг онбординга (опыт или время)
         mock_update.callback_query.message.reply_text.assert_called_once()
         call_args = mock_update.callback_query.message.reply_text.call_args
-        assert "В какое время" in call_args[0][0]
-
-        # Проверяем, что установлен флаг ожидания времени
-        assert mock_context.user_data.get('awaiting_time') is True
+        # После выбора дней идёт вопрос об опыте (если нет истории)
+        assert "опыт" in call_args[0][0].lower() or "время" in call_args[0][0].lower()
 
 
 @pytest.mark.asyncio

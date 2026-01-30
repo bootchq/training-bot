@@ -69,6 +69,8 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("skip", self.skip_training))
         self.app.add_handler(CommandHandler("set_google_token", self.set_google_token))
         self.app.add_handler(CommandHandler("reset", self.reset_user))
+        self.app.add_handler(CommandHandler("zones", self.zones_command))
+        self.app.add_handler(CommandHandler("methodology", self.methodology_command))
 
         # ВАЖНО: Standalone CallbackQueryHandlers ДО ConversationHandlers
         # чтобы они не были заблокированы
@@ -184,18 +186,89 @@ class TrainingBot:
 /calendar — Скачать план в ICS для календаря
 /skip — Пропустить тренировку (сегодня)
 /skip 25.01 — Пропустить тренировку на дату
+/zones — Персональные зоны пульса
+/methodology — Методология расчёта темпов
 
 ✅ Реализовано:
 • Автоматическая синхронизация Garmin
+• Персонализация по VDOT и LTHR
 • Адаптивный план тренировок
 • Вечерний опрос самочувствия
 • Экспорт плана в календарь
 • Пропуск тренировок с адаптацией
-
-🤖 В разработке:
-• AI-консультант с советами
 """
         await update.message.reply_text(help_text)
+
+    async def zones_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /zones - показать персональные зоны пульса"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+        settings = db.get_user_settings(user.id)
+
+        lthr = settings.get('lthr') if settings else None
+
+        if not lthr:
+            await update.message.reply_text(
+                "Зоны пульса пока не рассчитаны.\n\n"
+                "Для расчёта нужен LTHR (пульс лактатного порога) из Garmin.\n"
+                "Используй /sync для синхронизации данных."
+            )
+            return
+
+        zones_text = format_hr_zones_summary(lthr)
+        await update.message.reply_text(zones_text, parse_mode='Markdown')
+
+    async def methodology_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /methodology - показать методологию расчёта темпов"""
+        from ..core.plan_generator import PlanGenerator
+        from ..core.vdot_calculator import get_training_paces, format_pace
+
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+        settings = db.get_user_settings(user.id)
+
+        vdot = settings.get('vdot') if settings else None
+        vdot_source = settings.get('vdot_source') if settings else None
+        lthr = settings.get('lthr') if settings else None
+
+        if not vdot and not lthr:
+            await update.message.reply_text(
+                "Персонализация пока не настроена.\n\n"
+                "Для расчёта персональных темпов нужны:\n"
+                "• VDOT — рассчитывается по твоим рекордам на 5K/10K/полумарафон/марафон\n"
+                "• LTHR — пульс лактатного порога из Garmin\n\n"
+                "Используй /sync для синхронизации данных."
+            )
+            return
+
+        lines = ["**Методология персонализации**\n"]
+
+        if vdot:
+            lines.append(f"**VDOT: {vdot:.1f}** (Jack Daniels)")
+            if vdot_source:
+                lines.append(f"Источник: результат на {vdot_source.upper()}\n")
+
+            paces = get_training_paces(vdot)
+            if paces:
+                lines.append("**Тренировочные темпы:**")
+                lines.append(f"• Easy (лёгкий): {paces.get('E', 'N/A')}")
+                lines.append(f"• Marathon (марафонский): {paces.get('M', 'N/A')}")
+                lines.append(f"• Threshold (пороговый): {paces.get('T', 'N/A')}")
+                lines.append(f"• Interval (интервальный): {paces.get('I', 'N/A')}")
+                lines.append(f"• Repetition (повторы): {paces.get('R', 'N/A')}")
+                lines.append("")
+
+        if lthr:
+            lines.append(f"**LTHR: {lthr} уд/мин** (Joe Friel)")
+            lines.append("Зоны пульса рассчитаны по LTHR.")
+            lines.append("Используй /zones для просмотра.\n")
+
+        lines.append("**Принципы плана:**")
+        lines.append("• 80/20: 80% лёгких, 20% интенсивных тренировок")
+        lines.append("• Разгрузочная неделя каждые 3-4 недели (-25%)")
+        lines.append("• Оптимальные интервалы VO2max: 4-6x5 мин")
+
+        await update.message.reply_text("\n".join(lines), parse_mode='Markdown')
 
     async def sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /sync - ручная синхронизация с Garmin"""
