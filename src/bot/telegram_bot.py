@@ -17,6 +17,8 @@ from ..core.plan_adapter import PlanAdapter
 from ..core.reminders import init_reminder_scheduler, get_reminder_scheduler
 from ..core.ai_training_analyzer import get_training_analyzer
 from ..core.personal_records import create_records_manager
+from ..core.vdot_calculator import calculate_best_vdot, format_vdot_summary
+from ..core.hr_zones import format_hr_zones_summary
 
 # Состояния для ConversationHandler
 GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
@@ -211,20 +213,53 @@ class TrainingBot:
             )
             return
 
-        await update.message.reply_text("📥 Синхронизирую тренировки за последние 14 дней...")
+        await update.message.reply_text("📥 Синхронизирую тренировки за последние 60 дней + физиологические данные...")
 
         try:
-            # Синхронизируем последние 14 дней
-            total_count = 0
-            today = date.today()
+            # Авторизуемся в Garmin
+            email, password = credentials
+            if not garmin_sync.login(email, password):
+                await update.message.reply_text("❌ Не удалось авторизоваться в Garmin")
+                return
 
-            for i in range(14):
-                sync_date = today - timedelta(days=i)
-                count = garmin_sync.sync_date_for_user(user.id, sync_date)
-                total_count += count
+            # Синхронизируем 60 дней + LTHR + Personal Records
+            total_count, lthr, personal_records = garmin_sync.sync_last_60_days(user.id)
+
+            # Рассчитываем VDOT по персональным рекордам
+            vdot, vdot_source, vdot_time = calculate_best_vdot(personal_records) if personal_records else (None, None, None)
+
+            # Сохраняем физиологические данные
+            if lthr or vdot:
+                db.save_user_physiology(
+                    user.id,
+                    lthr=lthr,
+                    vdot=vdot,
+                    vdot_source=vdot_source,
+                    vdot_time_seconds=vdot_time
+                )
+
+            # Формируем ответ пользователю
+            result_lines = []
+            if total_count > 0:
+                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней")
+            else:
+                result_lines.append("ℹ️ Новых тренировок не найдено")
+
+            if lthr:
+                result_lines.append(f"\n**Физиологические данные:**")
+                result_lines.append(f"- LTHR: {lthr} уд/мин")
+
+            if vdot:
+                result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})")
+
+            await update.message.reply_text("\n".join(result_lines), parse_mode='Markdown')
+
+            # Если есть VDOT, показываем персонализированные темпы
+            if vdot and vdot_source and vdot_time:
+                summary = format_vdot_summary(vdot, vdot_source, vdot_time)
+                await update.message.reply_text(summary, parse_mode='Markdown')
 
             if total_count > 0:
-                await update.message.reply_text(f"✅ Загружено {total_count} тренировок за последние 14 дней")
 
                 # AI-анализ последней тренировки
                 latest_training = db.get_latest_training(user.id)
@@ -678,20 +713,46 @@ class TrainingBot:
             "Подожди 2-5 минут ⏳"
         )
 
-        # Запускаем первую синхронизацию
+        # Запускаем первую синхронизацию (60 дней + LTHR + VDOT)
         user = db.get_or_create_user(telegram_id)
         try:
-            # Синхронизируем последние 30 дней
-            from datetime import date, timedelta
-            count = 0
-            for i in range(30):
-                sync_date = date.today() - timedelta(days=i)
-                count += garmin_sync.sync_date_for_user(user.id, sync_date)
+            # Синхронизируем 60 дней + получаем физиологические данные
+            total_count, lthr, personal_records = garmin_sync.sync_last_60_days(user.id)
 
-            if count > 0:
-                await update.message.reply_text(f"✅ Загружено {count} тренировок за последние 30 дней")
+            # Рассчитываем VDOT
+            vdot, vdot_source, vdot_time = calculate_best_vdot(personal_records) if personal_records else (None, None, None)
+
+            # Сохраняем физиологические данные
+            if lthr or vdot:
+                db.save_user_physiology(
+                    user.id,
+                    lthr=lthr,
+                    vdot=vdot,
+                    vdot_source=vdot_source,
+                    vdot_time_seconds=vdot_time
+                )
+
+            # Формируем ответ
+            result_lines = []
+            if total_count > 0:
+                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней")
             else:
-                await update.message.reply_text("ℹ️ Тренировок за последние 30 дней не найдено")
+                result_lines.append("ℹ️ Тренировок за последние 60 дней не найдено")
+
+            if lthr or vdot:
+                result_lines.append("\n**Персонализация:**")
+                if lthr:
+                    result_lines.append(f"- LTHR: {lthr} уд/мин (зоны пульса рассчитаны)")
+                if vdot:
+                    result_lines.append(f"- VDOT: {vdot:.0f} (темпы рассчитаны по {vdot_source})")
+                result_lines.append("\nТвой план будет персонализирован!")
+
+            await update.message.reply_text("\n".join(result_lines), parse_mode='Markdown')
+
+            # Показываем темпы если есть VDOT
+            if vdot and vdot_source and vdot_time:
+                summary = format_vdot_summary(vdot, vdot_source, vdot_time)
+                await update.message.reply_text(summary, parse_mode='Markdown')
 
         except Exception as e:
             logger.error(f"Ошибка первой синхронизации: {e}")
@@ -1938,6 +1999,10 @@ class TrainingBot:
             f"📆 Период: 4 недели\n\n"
             "Используй /plan чтобы посмотреть план на неделю"
         )
+
+        # Показываем методологию персонализации
+        methodology = generator.get_methodology_summary()
+        await query.message.reply_text(methodology, parse_mode='Markdown')
 
         logger.info(f"Пользователь {telegram_id} создал индивидуальный план для {goal_data['name']} (уровень: {level})")
         return ConversationHandler.END

@@ -1,6 +1,6 @@
 """Интеграция с Garmin Connect"""
 from datetime import date, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from garminconnect import Garmin, GarminConnectConnectionError, GarminConnectAuthenticationError
 
 from ..utils.config import Config
@@ -173,6 +173,139 @@ class GarminSync:
             'hr_zones': hr_zones,
             'notes': activity.get('activityName', '')
         }
+
+    def get_lactate_threshold(self) -> Optional[int]:
+        """
+        Получить LTHR (Lactate Threshold Heart Rate) из Garmin
+
+        Returns:
+            LTHR в уд/мин или None
+        """
+        if not self.client:
+            if not self.login():
+                return None
+
+        try:
+            # Получаем последние данные о лактатном пороге
+            lt_data = self.client.get_lactate_threshold(latest=True)
+
+            if lt_data and isinstance(lt_data, dict):
+                # Ищем пульс лактатного порога
+                lthr = lt_data.get('lactateThresholdHeartRate')
+                if lthr:
+                    logger.info(f"Получен LTHR из Garmin: {lthr} уд/мин")
+                    return int(lthr)
+
+            logger.info("LTHR не найден в данных Garmin")
+            return None
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить LTHR: {e}")
+            return None
+
+    def get_personal_records(self) -> Dict[str, Dict[str, Any]]:
+        """
+        Получить персональные рекорды из Garmin
+
+        Returns:
+            Словарь рекордов: {"5k": {"time_seconds": 1500, "date": "2024-01-15"}, ...}
+        """
+        if not self.client:
+            if not self.login():
+                return {}
+
+        try:
+            # Получаем персональные рекорды
+            pr_data = self.client.get_personal_record()
+
+            records = {}
+            if pr_data and isinstance(pr_data, list):
+                # Маппинг типов рекордов Garmin на наши
+                distance_mapping = {
+                    'PR_5K': '5k',
+                    'PR_10K': '10k',
+                    'PR_HALF_MARATHON': 'half',
+                    'PR_MARATHON': 'marathon',
+                    'FASTEST_5K': '5k',
+                    'FASTEST_10K': '10k',
+                    'FASTEST_HALF_MARATHON': 'half',
+                    'FASTEST_MARATHON': 'marathon',
+                }
+
+                for record in pr_data:
+                    record_type = record.get('prTypePk') or record.get('typeKey', '')
+
+                    # Проверяем оба варианта маппинга
+                    our_type = distance_mapping.get(record_type)
+                    if not our_type:
+                        # Пробуем найти по частичному совпадению
+                        for garmin_key, our_key in distance_mapping.items():
+                            if garmin_key in record_type.upper():
+                                our_type = our_key
+                                break
+
+                    if our_type:
+                        time_seconds = record.get('elapsedTime') or record.get('value')
+                        if time_seconds:
+                            # Преобразуем если нужно (иногда приходит в мс)
+                            if time_seconds > 86400:  # больше суток = миллисекунды
+                                time_seconds = time_seconds / 1000
+
+                            record_date = record.get('prDate') or record.get('activityStartDateLocal')
+
+                            # Сохраняем лучший результат (меньшее время)
+                            if our_type not in records or time_seconds < records[our_type]['time_seconds']:
+                                records[our_type] = {
+                                    'time_seconds': int(time_seconds),
+                                    'date': record_date
+                                }
+                                logger.info(f"PR {our_type}: {self._format_time(int(time_seconds))}")
+
+            logger.info(f"Получено {len(records)} персональных рекордов из Garmin")
+            return records
+
+        except Exception as e:
+            logger.warning(f"Не удалось получить персональные рекорды: {e}")
+            return {}
+
+    def _format_time(self, seconds: int) -> str:
+        """Форматирование времени в mm:ss или hh:mm:ss"""
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        secs = seconds % 60
+        if hours > 0:
+            return f"{hours}:{minutes:02d}:{secs:02d}"
+        return f"{minutes}:{secs:02d}"
+
+    def sync_last_60_days(self, user_id: int) -> Tuple[int, Optional[int], Dict[str, Dict]]:
+        """
+        Синхронизация тренировок за последние 60 дней + LTHR + Personal Records
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Tuple (количество тренировок, LTHR, personal_records)
+        """
+        logger.info(f"Начинаю синхронизацию 60 дней для user_id={user_id}")
+
+        # Получаем LTHR
+        lthr = self.get_lactate_threshold()
+
+        # Получаем персональные рекорды
+        personal_records = self.get_personal_records()
+
+        # Синхронизируем тренировки за 60 дней
+        total_saved = 0
+        today = date.today()
+
+        for days_ago in range(60):
+            target_date = today - timedelta(days=days_ago)
+            saved = self.sync_date(user_id, target_date)
+            total_saved += saved
+
+        logger.info(f"Синхронизация завершена: {total_saved} тренировок, LTHR={lthr}, PR={len(personal_records)}")
+        return total_saved, lthr, personal_records
 
     def sync_today(self, user_id: int) -> int:
         """

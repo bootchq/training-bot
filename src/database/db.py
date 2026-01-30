@@ -38,6 +38,12 @@ class User(Base):
     training_time_min = Column(Integer, nullable=True)  # Время на тренировку в минутах
     fitness_level = Column(String, nullable=True)  # beginner / intermediate / advanced (явно выбранный)
     onboarding_completed = Column(Boolean, default=False)  # прошёл ли онбординг
+    # Персонализация тренировок (из Garmin)
+    lthr = Column(Integer, nullable=True)  # Lactate Threshold Heart Rate
+    vdot = Column(Float, nullable=True)  # VDOT индекс (Jack Daniels)
+    vdot_source = Column(String, nullable=True)  # Источник VDOT: "5k", "10k", "half", "marathon"
+    vdot_time_seconds = Column(Integer, nullable=True)  # Время результата в секундах
+    garmin_synced_at = Column(DateTime, nullable=True)  # Когда последний раз синхронизировали
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
@@ -226,6 +232,16 @@ class Database:
             if 'fitness_level' not in columns:
                 logger.info("➕ Добавляю поле fitness_level в таблицу users")
                 cursor.execute("ALTER TABLE users ADD COLUMN fitness_level VARCHAR")
+                needs_migration = True
+
+            # Поля для персонализации тренировок (VDOT, LTHR)
+            if 'lthr' not in columns:
+                logger.info("➕ Добавляю поля персонализации (lthr, vdot) в таблицу users")
+                cursor.execute("ALTER TABLE users ADD COLUMN lthr INTEGER")
+                cursor.execute("ALTER TABLE users ADD COLUMN vdot REAL")
+                cursor.execute("ALTER TABLE users ADD COLUMN vdot_source VARCHAR")
+                cursor.execute("ALTER TABLE users ADD COLUMN vdot_time_seconds INTEGER")
+                cursor.execute("ALTER TABLE users ADD COLUMN garmin_synced_at DATETIME")
                 needs_migration = True
 
             if needs_migration:
@@ -737,8 +753,46 @@ class Database:
                 'training_time': user.training_time,
                 'training_time_min': user.training_time_min,
                 'fitness_level': user.fitness_level,
-                'onboarding_completed': user.onboarding_completed
+                'onboarding_completed': user.onboarding_completed,
+                'lthr': user.lthr,
+                'vdot': user.vdot,
+                'vdot_source': user.vdot_source,
+                'vdot_time_seconds': user.vdot_time_seconds,
+                'garmin_synced_at': user.garmin_synced_at
             }
+
+    def save_user_physiology(self, user_id: int, lthr: int = None, vdot: float = None,
+                               vdot_source: str = None, vdot_time_seconds: int = None) -> bool:
+        """
+        Сохранить физиологические данные пользователя (LTHR, VDOT)
+
+        Args:
+            user_id: ID пользователя
+            lthr: Lactate Threshold Heart Rate
+            vdot: VDOT индекс
+            vdot_source: Источник VDOT ("5k", "10k", "half", "marathon")
+            vdot_time_seconds: Время результата в секундах
+
+        Returns:
+            True если успешно
+        """
+        with self.get_session() as session:
+            user = session.query(User).filter_by(id=user_id).first()
+            if not user:
+                return False
+
+            if lthr is not None:
+                user.lthr = lthr
+            if vdot is not None:
+                user.vdot = vdot
+            if vdot_source is not None:
+                user.vdot_source = vdot_source
+            if vdot_time_seconds is not None:
+                user.vdot_time_seconds = vdot_time_seconds
+            user.garmin_synced_at = datetime.utcnow()
+
+            logger.info(f"Сохранены физиологические данные для user_id={user_id}: LTHR={lthr}, VDOT={vdot}")
+            return True
 
     def get_or_create_calendar_token(self, user_id: int) -> str:
         """
@@ -822,6 +876,13 @@ class Database:
             user.include_strength = None
             user.training_days = None
             user.training_time = None
+            user.training_time_min = None
+            user.fitness_level = None
+            user.lthr = None
+            user.vdot = None
+            user.vdot_source = None
+            user.vdot_time_seconds = None
+            user.garmin_synced_at = None
             user.onboarding_completed = False
 
             logger.info(

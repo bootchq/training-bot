@@ -1,12 +1,23 @@
-"""Генератор плана тренировок"""
+"""
+Генератор плана тренировок по методологии Jack Daniels
+
+Принципы:
+- VDOT-based темпы (персонализированные по результатам)
+- LTHR-based зоны пульса (Joe Friel)
+- Правило 80/20 (80% лёгких, 20% интенсивных)
+- Разгрузочные недели (каждая 4-я: -25%)
+- Оптимальные протоколы интервалов (4×5 мин для VO2max)
+"""
 from datetime import date, timedelta
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from ..database.db import db
 from ..utils.logger import logger
+from .vdot_calculator import get_training_paces, get_training_paces_seconds, format_pace
+from .hr_zones import get_zone_for_workout, format_hr_range_for_workout, get_workout_hr_description
 
 
 class PlanGenerator:
-    """Генератор тренировочного плана"""
+    """Генератор тренировочного плана по Jack Daniels"""
 
     def __init__(self, user_id: int):
         """
@@ -16,113 +27,16 @@ class PlanGenerator:
             user_id: ID пользователя
         """
         self.user_id = user_id
-
-    def generate_base_plan(self, goal_distance: int, goal_date: date, weeks: int = 4) -> List[Dict[str, Any]]:
-        """
-        Генерация базового плана тренировок
-
-        Args:
-            goal_distance: Целевая дистанция забега (км)
-            goal_date: Дата забега
-            weeks: Количество недель плана
-
-        Returns:
-            Список тренировок
-        """
-        trainings = []
-        start_date = date.today()
-
-        # Определяем текущий уровень пользователя
-        current_level = self._estimate_current_level()
-
-        # Базовая недельная структура для подготовки к трейлу/марафону
-        # Понедельник - отдых, Вторник - база, Среда - темп, Четверг - легкая,
-        # Пятница - отдых, Суббота - длинная, Воскресенье - восстановительная
-
-        week_template = [
-            {'day': 0, 'type': 'rest', 'description': 'Отдых или растяжка'},  # Понедельник
-            {'day': 1, 'type': 'easy', 'duration_min': 45, 'target_zone': 'Z2', 'description': 'Легкий бег в аэробной зоне'},  # Вторник
-            {'day': 2, 'type': 'tempo', 'duration_min': 50, 'target_zone': 'Z3-Z4', 'description': 'Темповая тренировка'},  # Среда
-            {'day': 3, 'type': 'easy', 'duration_min': 35, 'target_zone': 'Z2', 'description': 'Восстановительный бег'},  # Четверг
-            {'day': 4, 'type': 'rest', 'description': 'Отдых'},  # Пятница
-            {'day': 5, 'type': 'long', 'duration_min': 120, 'target_zone': 'Z2', 'description': 'Длинная тренировка'},  # Суббота
-            {'day': 6, 'type': 'recovery', 'duration_min': 40, 'target_zone': 'Z1-Z2', 'description': 'Легкий восстановительный бег'},  # Воскресенье
-        ]
-
-        for week_num in range(weeks):
-            # Прогрессия: каждую неделю немного увеличиваем объём
-            week_multiplier = 1 + (week_num * 0.1)  # +10% каждую неделю
-
-            for day_template in week_template:
-                training_date = start_date + timedelta(days=(week_num * 7) + day_template['day'])
-
-                # Пропускаем даты в прошлом
-                if training_date < date.today():
-                    continue
-
-                # Не планируем после даты забега
-                if training_date > goal_date:
-                    continue
-
-                # Отдых - только запись без тренировки
-                if day_template['type'] == 'rest':
-                    continue
-
-                duration_min = day_template.get('duration_min', 0)
-                if duration_min > 0:
-                    duration_min = int(duration_min * week_multiplier)
-
-                # Оценка дистанции (5:30 мин/км средний темп для базовых тренировок)
-                distance_km = None
-                if duration_min > 0:
-                    avg_pace_min_per_km = 5.5  # Средний темп
-                    distance_km = round(duration_min / avg_pace_min_per_km, 1)
-
-                training = {
-                    'date': training_date,
-                    'type': day_template['type'],
-                    'duration_min': duration_min,
-                    'distance_km': distance_km,
-                    'target_zone': day_template.get('target_zone'),
-                    'description': day_template.get('description', '')
-                }
-
-                trainings.append(training)
-
-        logger.info(f"Сгенерирован план на {weeks} недель: {len(trainings)} тренировок")
-        return trainings
-
-    def _estimate_current_level(self) -> str:
-        """
-        Оценка текущего уровня пользователя по статистике
-
-        Returns:
-            Уровень: beginner, intermediate, advanced
-        """
-        from ..core.stats_calculator import StatsCalculator
-
-        calculator = StatsCalculator(self.user_id)
-        stats = calculator.get_month_stats()
-
-        if stats['trainings_count'] == 0:
-            return 'beginner'
-
-        # Определяем уровень по среднему объёму в неделю
-        weeks = 4
-        avg_weekly_distance = stats['total_distance'] / weeks
-
-        if avg_weekly_distance < 20:
-            return 'beginner'
-        elif avg_weekly_distance < 40:
-            return 'intermediate'
-        else:
-            return 'advanced'
+        self.user_settings = db.get_user_settings(user_id)
+        self.vdot = self.user_settings.get('vdot') if self.user_settings else None
+        self.lthr = self.user_settings.get('lthr') if self.user_settings else None
+        self.paces = get_training_paces(self.vdot) if self.vdot else None
 
     def generate_detailed_plan(self, goal_distance: int, goal_date: date, training_days: List[int],
                                time_per_session: int, weeks: int = 4, goal_type: str = 'race',
                                fitness_level: str = None) -> List[Dict[str, Any]]:
         """
-        Генерация детального плана тренировок с индивидуальными параметрами
+        Генерация детального плана тренировок с персонализацией
 
         Args:
             goal_distance: Целевая дистанция забега (км)
@@ -131,7 +45,7 @@ class PlanGenerator:
             time_per_session: Время на одну тренировку (минуты)
             weeks: Количество недель плана
             goal_type: Тип цели (race/trail/fitness)
-            fitness_level: Уровень подготовки (beginner/intermediate/advanced), опционально
+            fitness_level: Уровень подготовки (beginner/intermediate/advanced)
 
         Returns:
             Список тренировок с детальным описанием
@@ -139,87 +53,50 @@ class PlanGenerator:
         trainings = []
         start_date = date.today()
 
-        # Определяем текущий уровень подготовки
-        # Приоритет: автоопределение по истории, если нет истории → явный выбор
-        from ..core.stats_calculator import StatsCalculator
-        calculator = StatsCalculator(self.user_id)
-        stats = calculator.get_month_stats()
+        # Определяем уровень подготовки
+        current_level = self._get_fitness_level(fitness_level)
 
-        if stats['trainings_count'] > 0:
-            # Есть история → автоопределение (объективно)
-            current_level = self._estimate_current_level()
-            logger.info(f"Автоопределён уровень по истории ({stats['trainings_count']} тренировок) user={self.user_id}: {current_level}")
-        elif fitness_level:
-            # Нет истории + явно указан уровень → используем явный
-            current_level = fitness_level
-            logger.info(f"Нет истории тренировок, используется явный уровень user={self.user_id}: {current_level}")
-        else:
-            # Нет истории + не указан уровень → beginner по умолчанию
-            current_level = 'beginner'
-            logger.info(f"Нет истории и уровня, по умолчанию beginner для user={self.user_id}")
-
-        # Корректируем базовое время в зависимости от уровня
-        if current_level == 'beginner':
-            time_multiplier = 0.85  # Новички: -15% времени
-        elif current_level == 'advanced':
-            time_multiplier = 1.15  # Опытные: +15% времени
-        else:
-            time_multiplier = 1.0  # Средний уровень: без изменений
-
+        # Корректируем время под уровень
+        time_multiplier = self._get_level_multiplier(current_level)
         adjusted_time = int(time_per_session * time_multiplier)
 
-        # Определяем типы тренировок по дням недели
-        workout_types = self._determine_workout_types(training_days, adjusted_time)
-
-        # Периодизация: определяем фазы подготовки
-        base_weeks = int(weeks * 0.6)  # 60% - базовый период
-        build_weeks = int(weeks * 0.3)  # 30% - развивающий период
-        taper_weeks = weeks - base_weeks - build_weeks  # 10% - подводка
+        # Определяем типы тренировок по правилу 80/20
+        workout_schedule = self._create_80_20_schedule(training_days, weeks)
 
         for week_num in range(weeks):
-            # Определяем множитель нагрузки в зависимости от периода
-            if week_num < base_weeks:
-                # Базовый период: постепенный рост от 0.9 до 1.1
-                progress = week_num / max(base_weeks - 1, 1)
-                week_multiplier = 0.9 + (progress * 0.2)
-            elif week_num < base_weeks + build_weeks:
-                # Развивающий период: пик нагрузки 1.1-1.2
-                progress = (week_num - base_weeks) / max(build_weeks - 1, 1)
-                week_multiplier = 1.1 + (progress * 0.1)
-            else:
-                # Подводка: снижение нагрузки
-                weeks_to_race = weeks - week_num
-                if weeks_to_race <= 1:
-                    # Последняя неделя: сильное снижение (50%)
-                    week_multiplier = 0.5
-                else:
-                    # Предпоследние недели: умеренное снижение (70-80%)
-                    week_multiplier = 0.8 - ((taper_weeks - weeks_to_race) * 0.1)
+            # Разгрузочная неделя каждая 4-я
+            is_recovery_week = (week_num + 1) % 4 == 0 and week_num > 0
+
+            # Множитель нагрузки
+            week_multiplier = self._get_week_multiplier(week_num, weeks, is_recovery_week)
 
             for day_num in training_days:
-                # Преобразуем 1-7 в 0-6 (Python weekday)
                 day_offset = (day_num - 1) % 7
                 training_date = start_date + timedelta(days=(week_num * 7) + day_offset)
 
-                # Пропускаем прошлые даты и даты после забега
                 if training_date < date.today() or training_date > goal_date:
                     continue
 
-                # За 3 дня до забега - только легкие тренировки
-                days_to_race = (goal_date - training_date).days
-                if days_to_race <= 3 and days_to_race > 0:
-                    workout_type = 'recovery'
-                else:
-                    # Определяем тип тренировки для этого дня
-                    workout_type = workout_types.get(day_num, 'easy')
+                # Тип тренировки из расписания 80/20
+                workout_type = workout_schedule.get((week_num, day_num), 'easy')
 
-                # Генерируем детальное описание
+                # За 3 дня до забега — только восстановление
+                days_to_race = (goal_date - training_date).days
+                if 0 < days_to_race <= 3:
+                    workout_type = 'recovery'
+
+                # В разгрузочную неделю — без интервалов
+                if is_recovery_week and workout_type in ['intervals', 'vo2max']:
+                    workout_type = 'easy'
+
+                # Генерируем детали тренировки
                 workout_details = self._generate_workout_details(
-                    workout_type,
-                    adjusted_time,
-                    week_multiplier,
+                    workout_type=workout_type,
+                    base_time=adjusted_time,
+                    multiplier=week_multiplier,
                     goal_type=goal_type,
-                    goal_distance=goal_distance
+                    goal_distance=goal_distance,
+                    is_recovery_week=is_recovery_week
                 )
 
                 training = {
@@ -228,245 +105,429 @@ class PlanGenerator:
                     'duration_min': workout_details['total_time'],
                     'distance_km': workout_details['distance_km'],
                     'target_zone': workout_details['target_zone'],
-                    'description': workout_details['description']
+                    'description': workout_details['description'],
+                    'week_num': week_num + 1,
+                    'is_recovery_week': is_recovery_week
                 }
 
                 trainings.append(training)
 
-        logger.info(f"Сгенерирован детальный план с периодизацией: {len(trainings)} тренировок на {weeks} недель (база: {base_weeks}н, развитие: {build_weeks}н, подводка: {taper_weeks}н)")
+        logger.info(f"Сгенерирован план: {len(trainings)} тренировок, VDOT={self.vdot}, LTHR={self.lthr}")
         return trainings
 
-    def _determine_workout_types(self, training_days: List[int], time_per_session: int) -> Dict[int, str]:
-        """
-        Определить типы тренировок для каждого дня
+    def _get_fitness_level(self, explicit_level: str = None) -> str:
+        """Определить уровень подготовки"""
+        from ..core.stats_calculator import StatsCalculator
 
-        Args:
-            training_days: Дни тренировок
-            time_per_session: Время на тренировку
+        calculator = StatsCalculator(self.user_id)
+        stats = calculator.get_month_stats()
 
-        Returns:
-            Словарь {день: тип_тренировки}
+        if stats['trainings_count'] > 0:
+            # Автоопределение по истории
+            avg_weekly = stats['total_distance'] / 4
+            if avg_weekly < 20:
+                return 'beginner'
+            elif avg_weekly < 40:
+                return 'intermediate'
+            else:
+                return 'advanced'
+
+        return explicit_level or 'beginner'
+
+    def _get_level_multiplier(self, level: str) -> float:
+        """Множитель времени по уровню"""
+        multipliers = {
+            'beginner': 0.85,
+            'intermediate': 1.0,
+            'advanced': 1.15
+        }
+        return multipliers.get(level, 1.0)
+
+    def _get_week_multiplier(self, week_num: int, total_weeks: int, is_recovery_week: bool) -> float:
         """
-        workout_types = {}
+        Множитель нагрузки для недели
+
+        Периодизация: 3 недели вверх, 1 неделя вниз (разгрузочная)
+        """
+        if is_recovery_week:
+            return 0.75  # -25% в разгрузочную неделю
+
+        # Периоды подготовки
+        base_weeks = int(total_weeks * 0.6)
+        build_weeks = int(total_weeks * 0.3)
+
+        if week_num < base_weeks:
+            # Базовый период: 0.9 → 1.1
+            progress = week_num / max(base_weeks - 1, 1)
+            return 0.9 + (progress * 0.2)
+        elif week_num < base_weeks + build_weeks:
+            # Развивающий период: 1.1 → 1.2
+            progress = (week_num - base_weeks) / max(build_weeks - 1, 1)
+            return 1.1 + (progress * 0.1)
+        else:
+            # Подводка: снижение
+            weeks_to_race = total_weeks - week_num
+            if weeks_to_race <= 1:
+                return 0.5
+            return 0.7
+
+    def _create_80_20_schedule(self, training_days: List[int], weeks: int) -> Dict[tuple, str]:
+        """
+        Создать расписание по правилу 80/20
+
+        80% тренировок — лёгкие (easy, long, recovery)
+        20% тренировок — интенсивные (intervals, tempo, threshold)
+        """
+        schedule = {}
         num_days = len(training_days)
 
-        # Если 2-3 тренировки в неделю: легкая + длинная (+ интервалы)
-        if num_days == 2:
-            workout_types[training_days[0]] = 'easy'
-            workout_types[training_days[1]] = 'long'
+        # Распределение типов тренировок по количеству дней
+        # Ключевые тренировки: максимум 2 в неделю
+        if num_days <= 2:
+            # 2 дня: easy + long
+            types = ['easy', 'long']
         elif num_days == 3:
-            workout_types[training_days[0]] = 'intervals'
-            workout_types[training_days[1]] = 'easy'
-            workout_types[training_days[2]] = 'long'
-        # Если 4-5 тренировок: интервалы + темп + легкая + длинная (+ восстановительная)
+            # 3 дня: intervals + easy + long (1 интенсивная из 3 = 33%, но длинная это тоже база)
+            types = ['intervals', 'easy', 'long']
         elif num_days == 4:
-            workout_types[training_days[0]] = 'intervals'
-            workout_types[training_days[1]] = 'tempo'
-            workout_types[training_days[2]] = 'easy'
-            workout_types[training_days[3]] = 'long'
-        else:  # 5+ тренировок
-            workout_types[training_days[0]] = 'intervals'
-            workout_types[training_days[1]] = 'easy'
-            workout_types[training_days[2]] = 'tempo'
-            workout_types[training_days[3]] = 'easy'
-            workout_types[training_days[4]] = 'long'
-            # Остальные дни - восстановительные
-            for i in range(5, num_days):
-                workout_types[training_days[i]] = 'recovery'
+            # 4 дня: intervals + easy + tempo + long (2 интенсивные из 4 = 50% -> нужно скорректировать)
+            # По 80/20: 80% = 3.2 лёгких, 20% = 0.8 интенсивных
+            # Компромисс: 1 интенсивная + 3 лёгких, но длинная = база
+            types = ['intervals', 'easy', 'easy', 'long']
+        elif num_days == 5:
+            # 5 дней: 80% = 4 лёгких, 20% = 1 интенсивная
+            types = ['intervals', 'easy', 'easy', 'easy', 'long']
+        else:
+            # 6+ дней: добавляем темповую как вторую ключевую
+            types = ['intervals', 'easy', 'tempo', 'easy', 'long', 'recovery']
+            types = types[:num_days]
 
-        return workout_types
+        for week_num in range(weeks):
+            for i, day_num in enumerate(training_days):
+                workout_type = types[i] if i < len(types) else 'easy'
+                schedule[(week_num, day_num)] = workout_type
+
+        return schedule
 
     def _generate_workout_details(self, workout_type: str, base_time: int, multiplier: float,
-                                  goal_type: str = 'race', goal_distance: int = 21) -> Dict[str, Any]:
+                                  goal_type: str = 'race', goal_distance: int = 21,
+                                  is_recovery_week: bool = False) -> Dict[str, Any]:
         """
-        Генерация детального описания тренировки
-
-        Args:
-            workout_type: Тип тренировки
-            base_time: Базовое время (минуты)
-            multiplier: Множитель прогрессии
-            goal_type: Тип цели (race/trail/fitness)
-            goal_distance: Целевая дистанция (км)
-
-        Returns:
-            Словарь с деталями тренировки
+        Генерация детального описания тренировки с персонализацией
         """
-        # Применяем прогрессию к общему времени
         total_time = int(base_time * multiplier)
 
-        # Определяем базовый темп в зависимости от типа забега и дистанции
-        if goal_type == 'trail':
-            # Трейл: медленнее из-за набора высоты
-            base_pace = 6.5  # мин/км
-            pace_range = "6:00-7:30"
-        elif goal_distance >= 42:
-            # Марафон и ультра: средний темп
-            base_pace = 5.5  # мин/км
-            pace_range = "5:00-6:00"
-        elif goal_distance >= 21:
-            # Полумарафон: чуть быстрее
-            base_pace = 5.2  # мин/км
-            pace_range = "4:45-5:30"
-        else:
-            # Короткие дистанции: быстрее
-            base_pace = 5.0  # мин/км
-            pace_range = "4:30-5:15"
+        # Темпы по VDOT (если есть)
+        pace_info = self._get_pace_info(workout_type)
 
-        # Адаптивные разминка/заминка в зависимости от длительности
-        if total_time < 40:
-            warmup = 10
-            cooldown = 5
-        elif total_time < 60:
-            warmup = 15
-            cooldown = 10
-        else:
-            warmup = 20
-            cooldown = 15
+        # Зона пульса по LTHR (если есть)
+        hr_info = self._get_hr_info(workout_type)
 
-        main_time = total_time - warmup - cooldown
+        # Разминка/заминка
+        warmup, cooldown = self._get_warmup_cooldown(total_time)
+        main_time = max(10, total_time - warmup - cooldown)
 
-        # Валидация: если main_time всё равно отрицательный
-        if main_time <= 0:
-            main_time = 10  # Минимальная основная часть
-            warmup = (total_time - main_time) // 2
-            cooldown = total_time - main_time - warmup
+        # Базовый темп для расчёта дистанции
+        base_pace = self._get_base_pace(goal_type, goal_distance)
 
-        if workout_type == 'intervals':
-            # Крейсовые интервалы
-            interval_count = max(3, main_time // 12)  # По 12 мин на интервал с отдыхом
-
-            if goal_type == 'trail':
-                description = (
-                    f"**Интервалы в гору**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {interval_count} × подъем 3-5 мин в z3-z4, спуск легко\n"
-                    f"- Заминка: {cooldown} мин z1–z2\n"
-                    f"- 💡 Найди холм или лестницу для подъемов"
-                )
-            else:
-                description = (
-                    f"**Крейсовые интервалы**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {interval_count} × 2км в z3, между отрезками отдых 2 мин z1–z2\n"
-                    f"- Заминка: {cooldown} мин z1–z2"
-                )
-            target_zone = 'Z2-Z3'
-            distance_km = round(total_time / (base_pace * 0.95), 1)  # Интервалы чуть быстрее базового темпа
-
-        elif workout_type == 'tempo':
-            # Темповый бег
-            tempo_time = int(main_time * 0.4)  # 40% от основного времени - темп
-            recovery_time = main_time - tempo_time
-
-            if goal_type == 'trail':
-                description = (
-                    f"**Темповый бег по холмам**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {tempo_time} мин в z3 (холмистая трасса)\n"
-                    f"- {recovery_time} мин z2 (восстановление)\n"
-                    f"- Заминка: {cooldown} мин z1–z2\n"
-                    f"- 💡 Цель: поддержание усилия на подъемах"
-                )
-            else:
-                description = (
-                    f"**Темповый бег непрерывный**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {tempo_time} мин непрерывно в z3 (темповый бег)\n"
-                    f"- {recovery_time} мин z2 (восстановление)\n"
-                    f"- Заминка: {cooldown} мин z1–z2"
-                )
-            target_zone = 'Z2-Z3'
-            distance_km = round(total_time / (base_pace * 0.92), 1)  # Темп чуть быстрее базового
-
+        if workout_type == 'intervals' or workout_type == 'vo2max':
+            details = self._generate_intervals(main_time, warmup, cooldown, goal_type, pace_info, hr_info)
+        elif workout_type == 'tempo' or workout_type == 'threshold':
+            details = self._generate_tempo(main_time, warmup, cooldown, goal_type, pace_info, hr_info)
         elif workout_type == 'long':
-            # Длинная тренировка
-            main_long = main_time
-
-            if goal_type == 'trail':
-                # Для трейла акцент на времени в ногах, не на темпе
-                description = (
-                    f"**Длинная трейловая**\n"
-                    f"- {warmup} мин легкая разминка\n"
-                    f"- {main_long} мин z2 (поиск холмов и троп)\n"
-                    f"- Заминка: {cooldown} мин z1\n"
-                    f"- 💡 Цель: время на ногах, не темп. Набор высоты приветствуется"
-                )
-                distance_km = round(total_time / (base_pace * 1.15), 1)  # Медленнее из-за рельефа
-            elif goal_distance >= 42:
-                # Марафон: длинные с марафонским темпом
-                marathon_pace = min(20, int(main_long * 0.2))  # 20% времени - марафонский темп
-                description = (
-                    f"**Длинная с марафонским темпом**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {main_long - marathon_pace} мин z2 (аэробная база)\n"
-                    f"- Последние {marathon_pace} мин: переход в z2–z3 (марафонский темп)\n"
-                    f"- Заминка: {cooldown} мин z1–z2\n"
-                    f"- 💡 Отработка целевого темпа на усталости"
-                )
-                distance_km = round(total_time / base_pace, 1)
-            else:
-                # Полумарафон: длинная в аэробной зоне
-                description = (
-                    f"**Длинная аэробная**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {main_long} мин z2 (комфортный темп)\n"
-                    f"- Заминка: {cooldown} мин z1–z2\n"
-                    f"- 💡 Держи разговорный темп"
-                )
-                distance_km = round(total_time / base_pace, 1)
-            target_zone = 'Z2'
-
+            details = self._generate_long_run(main_time, warmup, cooldown, goal_type, goal_distance, pace_info, hr_info)
         elif workout_type == 'recovery':
-            # Восстановительная
-            description = (
-                f"**Восстановительный бег**\n"
-                f"- {warmup} мин z1 (легкая разминка)\n"
-                f"- {main_time} мин z1–z2 (очень легкий бег)\n"
-                f"- Заминка: {cooldown} мин z1\n"
-                f"- 💡 Темп медленнее обычного, фокус на восстановлении"
-            )
-            target_zone = 'Z1-Z2'
-            distance_km = round(total_time / (base_pace * 1.2), 1)  # Медленнее на 20%
-
+            details = self._generate_recovery(total_time, pace_info, hr_info)
         else:  # easy
-            # Легкий бег
-            if goal_type == 'trail':
-                description = (
-                    f"**Легкий бег по тропам**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {main_time} мин z2 (комфортный темп, можно с подъемами)\n"
-                    f"- Заминка: {cooldown} мин z1–z2\n"
-                    f"- 💡 Адаптация к пересеченной местности"
-                )
-            else:
-                description = (
-                    f"**Легкий аэробный бег**\n"
-                    f"- {warmup} мин z2 (разминка)\n"
-                    f"- {main_time} мин z2 (аэробный бег)\n"
-                    f"- Заминка: {cooldown} мин z1–z2\n"
-                    f"- 💡 Комфортный разговорный темп"
-                )
-            target_zone = 'Z2'
-            distance_km = round(total_time / base_pace, 1)
+            details = self._generate_easy(main_time, warmup, cooldown, goal_type, pace_info, hr_info)
+
+        # Расчёт дистанции
+        details['distance_km'] = self._calculate_distance(total_time, workout_type, base_pace)
+        details['total_time'] = total_time
+
+        return details
+
+    def _get_pace_info(self, workout_type: str) -> str:
+        """Получить информацию о темпе по VDOT"""
+        if not self.paces:
+            return ""
+
+        pace_mapping = {
+            'easy': f"Темп: {self.paces['easy_range']}/км",
+            'recovery': f"Темп: медленнее {self.paces['easy']}/км",
+            'long': f"Темп: {self.paces['easy_range']}/км",
+            'tempo': f"Темп: {self.paces['threshold']}/км",
+            'threshold': f"Темп: {self.paces['threshold']}/км",
+            'intervals': f"Темп интервалов: {self.paces['interval']}/км",
+            'vo2max': f"Темп интервалов: {self.paces['interval']}/км",
+        }
+        return pace_mapping.get(workout_type, "")
+
+    def _get_hr_info(self, workout_type: str) -> str:
+        """Получить информацию о пульсе по LTHR"""
+        if self.lthr:
+            return format_hr_range_for_workout(workout_type, self.lthr)
+        return get_workout_hr_description(workout_type, None)
+
+    def _get_warmup_cooldown(self, total_time: int) -> tuple:
+        """Расчёт разминки и заминки"""
+        if total_time < 40:
+            return 8, 5
+        elif total_time < 60:
+            return 12, 8
+        else:
+            return 15, 10
+
+    def _get_base_pace(self, goal_type: str, goal_distance: int) -> float:
+        """Базовый темп в мин/км для расчёта дистанции"""
+        if self.paces:
+            # Используем Easy темп из VDOT
+            paces_sec = get_training_paces_seconds(self.vdot)
+            return paces_sec['easy'] / 60
+        elif goal_type == 'trail':
+            return 6.5
+        elif goal_distance >= 42:
+            return 5.5
+        elif goal_distance >= 21:
+            return 5.2
+        else:
+            return 5.0
+
+    def _calculate_distance(self, total_time: int, workout_type: str, base_pace: float) -> float:
+        """Расчёт дистанции"""
+        pace_multipliers = {
+            'recovery': 1.2,
+            'easy': 1.0,
+            'long': 1.0,
+            'tempo': 0.92,
+            'threshold': 0.92,
+            'intervals': 0.95,
+            'vo2max': 0.95,
+        }
+        multiplier = pace_multipliers.get(workout_type, 1.0)
+        return round(total_time / (base_pace * multiplier), 1)
+
+    def _generate_intervals(self, main_time: int, warmup: int, cooldown: int,
+                           goal_type: str, pace_info: str, hr_info: str) -> Dict:
+        """
+        Генерация интервальной тренировки
+
+        Оптимальный протокол для VO2max: 4×5 мин с 2.5 мин восстановления
+        """
+        # Рассчитываем количество интервалов
+        # 5 мин работа + 2.5 мин отдых = 7.5 мин на цикл
+        interval_duration = 5  # минут
+        rest_duration = 2.5  # минут
+        cycle_duration = interval_duration + rest_duration
+
+        num_intervals = max(3, int(main_time / cycle_duration))
+        num_intervals = min(num_intervals, 6)  # Не больше 6
+
+        total_interval_time = num_intervals * cycle_duration
+
+        if goal_type == 'trail':
+            description = (
+                f"**Интервалы в гору (VO2max)**\n"
+                f"- Разминка: {warmup} мин лёгкий бег\n"
+                f"- {num_intervals}× {interval_duration} мин подъём Z4-Z5 + {rest_duration} мин спуск легко\n"
+                f"- Заминка: {cooldown} мин лёгкий бег"
+            )
+        else:
+            description = (
+                f"**Интервалы VO2max (Jack Daniels I-pace)**\n"
+                f"- Разминка: {warmup} мин Z2\n"
+                f"- {num_intervals}× {interval_duration} мин Z4-Z5 + {rest_duration} мин трусцой\n"
+                f"- Заминка: {cooldown} мин Z1-Z2"
+            )
+
+        if pace_info:
+            description += f"\n- {pace_info}"
+        if hr_info:
+            description += f"\n- Пульс интервалов: {hr_info}"
 
         return {
-            'description': f"{description}\n- **~{total_time} минут (~{distance_km}км)**",
-            'total_time': total_time,
-            'distance_km': distance_km,
-            'target_zone': target_zone
+            'description': description,
+            'target_zone': 'Z4-Z5',
         }
 
-    def save_plan_to_db(self, trainings: List[Dict[str, Any]]) -> int:
+    def _generate_tempo(self, main_time: int, warmup: int, cooldown: int,
+                       goal_type: str, pace_info: str, hr_info: str) -> Dict:
         """
-        Сохранить план тренировок в БД
+        Генерация темповой тренировки
 
-        Args:
-            trainings: Список тренировок
+        T-темп по Daniels: "комфортно тяжело", можно держать ~60 мин
+        """
+        tempo_time = int(main_time * 0.6)  # 60% основной части — темп
+        easy_time = main_time - tempo_time
+
+        if goal_type == 'trail':
+            description = (
+                f"**Темповый бег по холмам (Threshold)**\n"
+                f"- Разминка: {warmup} мин лёгкий бег\n"
+                f"- {tempo_time} мин в Z3-Z4 (холмистая трасса)\n"
+                f"- {easy_time} мин лёгкий бег\n"
+                f"- Заминка: {cooldown} мин"
+            )
+        else:
+            description = (
+                f"**Темповый бег (Jack Daniels T-pace)**\n"
+                f"- Разминка: {warmup} мин Z2\n"
+                f"- {tempo_time} мин непрерывно в Z3-Z4 (Threshold)\n"
+                f"- {easy_time} мин Z2\n"
+                f"- Заминка: {cooldown} мин Z1-Z2"
+            )
+
+        if pace_info:
+            description += f"\n- {pace_info}"
+        if hr_info:
+            description += f"\n- Пульс: {hr_info}"
+        description += "\n- Ощущение: комфортно тяжело, короткие фразы"
+
+        return {
+            'description': description,
+            'target_zone': 'Z3-Z4',
+        }
+
+    def _generate_long_run(self, main_time: int, warmup: int, cooldown: int,
+                          goal_type: str, goal_distance: int, pace_info: str, hr_info: str) -> Dict:
+        """
+        Генерация длинной тренировки
+
+        Правило: 30-40% недельного объёма
+        """
+        total_time = main_time + warmup + cooldown
+
+        if goal_type == 'trail':
+            # Для трейла — время на ногах важнее темпа
+            elevation_target = int(goal_distance * 30)  # Примерно 30м набора на км
+            description = (
+                f"**Длинная трейловая**\n"
+                f"- {total_time} мин в Z2 (разговорный темп)\n"
+                f"- Цель: время на ногах, не темп\n"
+                f"- Рекомендуемый набор: ~{elevation_target}м"
+            )
+        elif goal_distance >= 42:
+            # Марафон — с марафонским темпом в конце
+            mp_time = min(20, int(main_time * 0.2))
+            description = (
+                f"**Длинная с марафонским финишем (M-pace)**\n"
+                f"- Разминка: {warmup} мин\n"
+                f"- {main_time - mp_time} мин в Z2\n"
+                f"- Последние {mp_time} мин: переход в Z2-Z3 (марафонский темп)\n"
+                f"- Заминка: {cooldown} мин"
+            )
+            if self.paces:
+                description += f"\n- Марафонский темп: {self.paces['marathon']}/км"
+        else:
+            description = (
+                f"**Длинная аэробная**\n"
+                f"- Разминка: {warmup} мин\n"
+                f"- {main_time} мин в Z2 (разговорный темп)\n"
+                f"- Заминка: {cooldown} мин"
+            )
+
+        if pace_info:
+            description += f"\n- {pace_info}"
+        if hr_info:
+            description += f"\n- Пульс: {hr_info}"
+        description += "\n- Принцип: держи разговорный темп всю тренировку"
+
+        return {
+            'description': description,
+            'target_zone': 'Z2',
+        }
+
+    def _generate_recovery(self, total_time: int, pace_info: str, hr_info: str) -> Dict:
+        """Генерация восстановительной тренировки"""
+        description = (
+            f"**Восстановительный бег**\n"
+            f"- {total_time} мин очень легко в Z1\n"
+            f"- Темп: медленнее обычного на 30-60 сек/км\n"
+            f"- Цель: активное восстановление"
+        )
+
+        if hr_info:
+            description += f"\n- Пульс: ниже {hr_info.split('-')[0]} уд/мин"
+
+        return {
+            'description': description,
+            'target_zone': 'Z1',
+        }
+
+    def _generate_easy(self, main_time: int, warmup: int, cooldown: int,
+                      goal_type: str, pace_info: str, hr_info: str) -> Dict:
+        """Генерация лёгкой аэробной тренировки"""
+        total_time = main_time + warmup + cooldown
+
+        if goal_type == 'trail':
+            description = (
+                f"**Лёгкий бег по тропам**\n"
+                f"- {total_time} мин в Z2\n"
+                f"- Можно с небольшими подъёмами\n"
+                f"- Адаптация к пересечённой местности"
+            )
+        else:
+            description = (
+                f"**Лёгкий аэробный бег (E-pace)**\n"
+                f"- {total_time} мин в Z2\n"
+                f"- Разговорный темп\n"
+                f"- Цель: развитие аэробной базы"
+            )
+
+        if pace_info:
+            description += f"\n- {pace_info}"
+        if hr_info:
+            description += f"\n- Пульс: {hr_info}"
+
+        return {
+            'description': description,
+            'target_zone': 'Z2',
+        }
+
+    def generate_base_plan(self, goal_distance: int, goal_date: date, weeks: int = 4) -> List[Dict[str, Any]]:
+        """Базовый план (обратная совместимость)"""
+        return self.generate_detailed_plan(
+            goal_distance=goal_distance,
+            goal_date=goal_date,
+            training_days=[2, 4, 6],  # Вт, Чт, Сб
+            time_per_session=60,
+            weeks=weeks,
+            goal_type='race'
+        )
+
+    def save_plan_to_db(self, trainings: List[Dict[str, Any]]) -> int:
+        """Сохранить план в БД"""
+        return db.load_training_plan(self.user_id, trainings)
+
+    def get_methodology_summary(self) -> str:
+        """
+        Получить саммари методологии для пользователя
 
         Returns:
-            Количество сохранённых тренировок
+            Текст с объяснением персонализации
         """
-        return db.load_training_plan(self.user_id, trainings)
+        lines = ["**Методология плана:**"]
+
+        if self.vdot:
+            vdot_source = self.user_settings.get('vdot_source', 'результату')
+            lines.append(f"- VDOT: {self.vdot:.0f} (по {vdot_source})")
+            lines.append(f"- Темпы рассчитаны по Jack Daniels Running Formula")
+
+        if self.lthr:
+            lines.append(f"- LTHR: {self.lthr} уд/мин")
+            lines.append(f"- Зоны пульса по Joe Friel")
+
+        if not self.vdot and not self.lthr:
+            lines.append("- Универсальные зоны (без персонализации)")
+            lines.append("- Для точных темпов синхронизируй Garmin")
+
+        lines.append("")
+        lines.append("**Принципы:**")
+        lines.append("- 80/20: 80% лёгких тренировок, 20% интенсивных")
+        lines.append("- Разгрузочные недели: каждая 4-я (-25% объёма)")
+        lines.append("- Интервалы: оптимальный протокол 4-6×5 мин")
+
+        return "\n".join(lines)
 
 
 def create_plan_generator(user_id: int) -> PlanGenerator:
