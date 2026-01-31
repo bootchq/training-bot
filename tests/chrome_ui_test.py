@@ -4,14 +4,13 @@
 Использует системный Chrome, а не загруженный Chromium
 """
 
-import time
 import os
+import time
 from datetime import datetime
+
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
-from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 BOT_USERNAME = "training_dag_run_bot"
@@ -22,7 +21,7 @@ def main():
     print("🌐 БРАУЗЕРНОЕ ТЕСТИРОВАНИЕ ЧЕРЕЗ GOOGLE CHROME")
     print("="*70)
     print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Браузер: Google Chrome (системный)")
+    print("Браузер: Google Chrome (системный)")
     print(f"Бот: @{BOT_USERNAME}")
     print("="*70 + "\n")
 
@@ -62,7 +61,7 @@ def main():
         time.sleep(5)
 
         driver.save_screenshot(f'{SCREENSHOTS_DIR}/chrome_01_telegram.png')
-        print(f"✅ Telegram Web открыт")
+        print("✅ Telegram Web открыт")
         print(f"   URL: {driver.current_url}")
         print(f"   Скриншот: {SCREENSHOTS_DIR}/chrome_01_telegram.png")
 
@@ -123,15 +122,15 @@ def main():
         print("🔍 ПОИСК БОТА")
         print("="*70)
 
-        print(f"\n💡 В открывшемся Chrome найди бота:")
-        print(f"   1. Нажми на иконку поиска (лупа)")
+        print("\n💡 В открывшемся Chrome найди бота:")
+        print("   1. Нажми на иконку поиска (лупа)")
         print(f"   2. Введи: @{BOT_USERNAME}")
-        print(f"   3. Открой чат с ботом")
+        print("   3. Открой чат с ботом")
 
         input("\n   Нажми Enter в терминале когда откроешь чат с ботом...")
 
         driver.save_screenshot(f'{SCREENSHOTS_DIR}/chrome_04_bot_opened.png')
-        print(f"✅ Чат с ботом открыт")
+        print("✅ Чат с ботом открыт")
         print(f"   Скриншот: {SCREENSHOTS_DIR}/chrome_04_bot_opened.png")
 
         # Тестирование
@@ -170,7 +169,7 @@ def main():
         print("\n" + "="*70)
         print("📊 ИТОГИ ТЕСТИРОВАНИЯ")
         print("="*70)
-        print(f"✅ Браузерное тестирование через Google Chrome завершено")
+        print("✅ Браузерное тестирование через Google Chrome завершено")
         print(f"✅ Скриншоты сохранены: {SCREENSHOTS_DIR}")
         print("\n💡 Теперь ты можешь:")
         print("   • Проверить скриншоты")

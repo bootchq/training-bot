@@ -1,7 +1,13 @@
 """Fixtures для integration тестов"""
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
-from telegram import Update, CallbackQuery, User, Message, Chat
+from telegram import CallbackQuery
+from telegram import Chat
+from telegram import Message
+from telegram import Update
 from telegram.ext import ContextTypes
 
 

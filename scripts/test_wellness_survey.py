@@ -1,8 +1,8 @@
 """Тестирование вечернего опроса самочувствия"""
-import sys
 import os
+import sys
+from datetime import date
 from pathlib import Path
-from datetime import date, timedelta
 
 # Устанавливаем минимальные переменные окружения
 os.environ.setdefault('TELEGRAM_BOT_TOKEN', 'dummy')
@@ -12,8 +12,9 @@ os.environ.setdefault('GARMIN_PASSWORD', 'dummy')
 # Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.database.db import db, Training
 from src.core.wellness_survey import WellnessSurvey
+from src.database.db import Training
+from src.database.db import db
 from src.utils.logger import logger
 
 
@@ -50,7 +51,7 @@ def test_survey_flow():
     logger.info("✅ Тренировка создана")
 
     # Шаг 2: Проверка should_send_survey
-    logger.info(f"\n2. Проверка необходимости опроса")
+    logger.info("\n2. Проверка необходимости опроса")
     should_send = WellnessSurvey.should_send_survey(user.id, test_date)
     logger.info(f"Результат: {'✅ Да' if should_send else '❌ Нет'}")
 
@@ -59,13 +60,13 @@ def test_survey_flow():
         return
 
     # Шаг 3: Создание опроса
-    logger.info(f"\n3. Создание опроса")
+    logger.info("\n3. Создание опроса")
     text, keyboard = WellnessSurvey.create_survey_message(user.id, test_date)
     logger.info(f"Текст: {text[:50]}...")
     logger.info(f"Кнопок: {len(keyboard.inline_keyboard)} рядов")
 
     # Шаг 4: Симуляция ответов
-    logger.info(f"\n4. Симуляция прохождения опроса")
+    logger.info("\n4. Симуляция прохождения опроса")
 
     # Шаг 4.1: Оценка тренировки (выбираем 8)
     logger.info("Шаг 1: Оценка тренировки = 8")
@@ -113,7 +114,7 @@ def test_survey_flow():
         return
 
     # Шаг 5: Проверка сохранения в БД
-    logger.info(f"\n5. Проверка сохранения в БД")
+    logger.info("\n5. Проверка сохранения в БД")
     with db.get_session() as session:
         from src.database.db import WellnessSurvey as WellnessSurveyModel
 
@@ -123,7 +124,7 @@ def test_survey_flow():
         ).first()
 
         if survey:
-            logger.info(f"✅ Опрос найден в БД:")
+            logger.info("✅ Опрос найден в БД:")
             logger.info(f"   - Оценка тренировки: {survey.training_rating}")
             logger.info(f"   - Самочувствие: {survey.wellness_rating}")
             logger.info(f"   - Боль: {survey.pain_reported}")

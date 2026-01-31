@@ -3,7 +3,6 @@
 Использует только requests - не требует установки telegram библиотеки
 """
 import os
-import json
 import time
 from datetime import datetime
 
@@ -53,7 +52,7 @@ class SimpleBotTester:
 
         if result and result.get('ok'):
             bot = result['result']
-            print(f"\n✅ Бот найден:")
+            print("\n✅ Бот найден:")
             print(f"   Имя: {bot.get('first_name')}")
             print(f"   Username: @{bot.get('username')}")
             print(f"   ID: {bot.get('id')}")
@@ -61,7 +60,7 @@ class SimpleBotTester:
             self.test_results.append(("Доступность бота", True, f"@{bot.get('username')}"))
             return True
         else:
-            print(f"\n❌ Бот недоступен")
+            print("\n❌ Бот недоступен")
             self.test_results.append(("Доступность бота", False, "API error"))
             return False
 
@@ -92,7 +91,7 @@ class SimpleBotTester:
                 self.test_results.append(("Команды зарегистрированы", True, f"{len(commands)} команд"))
                 return True
         else:
-            print(f"\n❌ Не удалось получить команды")
+            print("\n❌ Не удалось получить команды")
             self.test_results.append(("Команды зарегистрированы", False, "API error"))
             return False
 
@@ -109,18 +108,18 @@ class SimpleBotTester:
             url = info.get('url')
 
             if url:
-                print(f"\n📡 Режим: WEBHOOK")
+                print("\n📡 Режим: WEBHOOK")
                 print(f"   URL: {url}")
                 print(f"   Pending updates: {info.get('pending_update_count', 0)}")
                 mode = "webhook"
             else:
-                print(f"\n📡 Режим: POLLING")
+                print("\n📡 Режим: POLLING")
                 mode = "polling"
 
             self.test_results.append(("Режим работы", True, mode))
             return True
         else:
-            print(f"\n❌ Не удалось получить webhook info")
+            print("\n❌ Не удалось получить webhook info")
             self.test_results.append(("Режим работы", False, "API error"))
             return False
 
@@ -134,7 +133,7 @@ class SimpleBotTester:
 
         if result and result.get('ok'):
             msg = result['result']
-            print(f"\n✅ Сообщение отправлено")
+            print("\n✅ Сообщение отправлено")
             print(f"   Message ID: {msg.get('message_id')}")
             print(f"   Чат: {msg['chat'].get('id')}")
 
@@ -170,7 +169,7 @@ class SimpleBotTester:
             self.test_results.append(("Получение updates", True, f"{len(updates)} updates"))
             return updates
         else:
-            print(f"\n❌ Не удалось получить updates")
+            print("\n❌ Не удалось получить updates")
             self.test_results.append(("Получение updates", False, "API error"))
             return []
 
@@ -197,19 +196,19 @@ class SimpleBotTester:
         print("=" * 70)
 
         if total - passed > 0:
-            print(f"\n⚠️ ТРЕБУЕТСЯ ВНИМАНИЕ:")
+            print("\n⚠️ ТРЕБУЕТСЯ ВНИМАНИЕ:")
             for test_name, result, details in self.test_results:
                 if not result:
                     print(f"  • {test_name}: {details}")
         else:
-            print(f"\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
+            print("\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
 
     def run_all_tests(self, test_chat_id=None):
         """Запуск всех тестов"""
         print("\n🚀 ЗАПУСК БРАУЗЕРНОЙ СИМУЛЯЦИИ ЧЕРЕЗ BOT API")
         print("="*70)
         print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Метод: Прямые вызовы Bot API (requests)")
+        print("Метод: Прямые вызовы Bot API (requests)")
         print("="*70)
 
         # Тесты, которые не требуют chat_id

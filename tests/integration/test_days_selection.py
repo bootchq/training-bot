@@ -1,6 +1,8 @@
 """Тесты для выбора дней тренировок (days selection)"""
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 
 @pytest.mark.asyncio

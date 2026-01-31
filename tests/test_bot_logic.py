@@ -4,15 +4,18 @@ Unit тесты для бота - РЕАЛЬНОЕ тестирование ло
 Симулирую Update объекты и вызываю handlers напрямую
 """
 
-import sys
 import os
-from unittest.mock import Mock, AsyncMock, MagicMock, patch
-from datetime import datetime, timedelta
+import sys
+from datetime import datetime
+from unittest.mock import AsyncMock
+from unittest.mock import Mock
+from unittest.mock import patch
 
 # Добавляем путь к модулям бота
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../src'))
 
 from bot.telegram_bot import TelegramTrainingBot
+
 
 class TestBotLogic:
     """Тесты логики бота"""
@@ -141,13 +144,13 @@ class TestBotLogic:
                 text = call_args[0][0] if call_args[0] else call_args[1].get('text', '')
 
                 if 'OAuth' in text or 'авторизоваться' in text:
-                    print(f"❌ FAIL: Бот пытается использовать OAuth!")
+                    print("❌ FAIL: Бот пытается использовать OAuth!")
                     print(f"   Текст: {text}")
                     return False
 
                 # Должно быть сообщение о создании плана
                 if 'план' in text.lower() or 'создай' in text.lower():
-                    print(f"✅ PASS: Бот просит создать план (правильно)")
+                    print("✅ PASS: Бот просит создать план (правильно)")
                     print(f"   Текст: {text[:200]}...")
                     return True
 

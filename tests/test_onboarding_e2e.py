@@ -4,16 +4,14 @@ E2E тест онбординга через Chrome DevTools
 Автоматически кликает по кнопкам, проверяет flow
 """
 
-import subprocess
-import time
 import os
 import sys
+import time
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 TELEGRAM_WEB = "https://web.telegram.org/k/"

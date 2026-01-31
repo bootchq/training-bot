@@ -10,9 +10,9 @@ E2E тесты онбординга через Telethon.
 """
 
 import asyncio
+
 import pytest
 from telethon import TelegramClient
-from telethon.tl.types import ReplyInlineMarkup
 
 
 async def click_button_by_text(response, text_contains: str) -> bool:
@@ -364,7 +364,7 @@ class TestOnboardingFlow:
             await conv.send_message(password)
             response = await conv.get_response()
             await asyncio.sleep(message_wait)
-            print(f"   Garmin: OK")
+            print("   Garmin: OK")
 
             # 3. Начало онбординга
             print("3. Начало онбординга")

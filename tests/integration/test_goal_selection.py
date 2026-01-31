@@ -1,6 +1,9 @@
 """Тесты для выбора цели (goal selection)"""
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 @pytest.mark.asyncio

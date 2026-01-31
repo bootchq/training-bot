@@ -1,8 +1,8 @@
 """Тестирование логики адаптации плана"""
-import sys
 import os
+import sys
+from datetime import date
 from pathlib import Path
-from datetime import date, timedelta
 
 # Устанавливаем минимальные переменные окружения
 os.environ.setdefault('TELEGRAM_BOT_TOKEN', 'dummy')
@@ -12,8 +12,8 @@ os.environ.setdefault('GARMIN_PASSWORD', 'dummy')
 # Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.database.db import db
 from src.core.plan_adapter import PlanAdapter
+from src.database.db import db
 from src.utils.logger import logger
 
 
@@ -46,7 +46,7 @@ def test_skip_adaptation():
         changes = adapter.adapt_on_skip(skip_date)
 
         if changes:
-            logger.info(f"\n✅ Изменения внесены:")
+            logger.info("\n✅ Изменения внесены:")
             for change in changes:
                 logger.info(f"  - {change}")
         else:
@@ -84,7 +84,7 @@ def test_overperformance():
         )
         session.add(training)
 
-    logger.info(f"Создана тренировка: 20км вместо ~10км")
+    logger.info("Создана тренировка: 20км вместо ~10км")
 
     # Анализ
     adapter = PlanAdapter(user.id)
@@ -98,7 +98,7 @@ def test_overperformance():
         changes = adapter.adapt_on_overperformance(test_date)
 
         if changes:
-            logger.info(f"\n✅ Изменения внесены:")
+            logger.info("\n✅ Изменения внесены:")
             for change in changes:
                 logger.info(f"  - {change}")
         else:
@@ -121,20 +121,20 @@ def test_wellness_adaptation():
     test_date = date(2025, 12, 28)  # День перед первой тренировкой
 
     # Тест 1: Плохое самочувствие (rating=3)
-    logger.info(f"\nСимуляция опроса: самочувствие 3/10")
+    logger.info("\nСимуляция опроса: самочувствие 3/10")
     changes = adapter.adapt_on_wellness(test_date, rating=3)
 
     if changes:
-        logger.info(f"✅ Изменения:")
+        logger.info("✅ Изменения:")
         for change in changes:
             logger.info(f"  - {change}")
 
     # Тест 2: Отличное самочувствие (rating=9)
-    logger.info(f"\nСимуляция опроса: самочувствие 9/10")
+    logger.info("\nСимуляция опроса: самочувствие 9/10")
     changes = adapter.adapt_on_wellness(test_date, rating=9)
 
     if changes:
-        logger.info(f"✅ Изменения:")
+        logger.info("✅ Изменения:")
         for change in changes:
             logger.info(f"  - {change}")
 

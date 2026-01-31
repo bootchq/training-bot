@@ -1,7 +1,11 @@
 """Тесты для корректировщика плана тренировок"""
+from datetime import date
+from datetime import timedelta
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
 import pytest
-from datetime import date, timedelta
-from unittest.mock import MagicMock, patch
+
 from src.core.plan_adjuster import PlanAdjuster
 
 

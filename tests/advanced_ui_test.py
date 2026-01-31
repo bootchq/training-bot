@@ -4,17 +4,15 @@
 Позволяет авторизоваться в Telegram Web и протестировать все кнопки бота
 """
 
-import time
 import os
-import sys
+import time
 from datetime import datetime
+
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 BOT_USERNAME = "training_dag_run_bot"
@@ -93,7 +91,7 @@ def find_bot(driver, bot_username):
                     search_input = driver.find_element(By.CSS_SELECTOR, selector)
 
                 if search_input:
-                    print(f"✅ Найдено поле поиска")
+                    print("✅ Найдено поле поиска")
                     break
             except:
                 continue
@@ -172,7 +170,7 @@ def test_bot_commands(driver):
         time.sleep(3)
 
         driver.save_screenshot(f'{SCREENSHOTS_DIR}/05_start_command.png')
-        print(f"✅ Команда /start отправлена")
+        print("✅ Команда /start отправлена")
         print(f"   Скриншот: {SCREENSHOTS_DIR}/05_start_command.png")
 
         # Проверяем наличие inline кнопок
@@ -198,7 +196,7 @@ def test_bot_commands(driver):
         time.sleep(3)
 
         driver.save_screenshot(f'{SCREENSHOTS_DIR}/06_help_command.png')
-        print(f"✅ Команда /help отправлена")
+        print("✅ Команда /help отправлена")
         print(f"   Скриншот: {SCREENSHOTS_DIR}/06_help_command.png")
 
         # ТЕСТ 3: Проверяем кнопки
@@ -215,7 +213,7 @@ def test_bot_commands(driver):
                 time.sleep(3)
 
                 driver.save_screenshot(f'{SCREENSHOTS_DIR}/07_button_click.png')
-                print(f"✅ Кнопка нажата")
+                print("✅ Кнопка нажата")
                 print(f"   Скриншот: {SCREENSHOTS_DIR}/07_button_click.png")
 
             except Exception as e:
@@ -239,7 +237,7 @@ def main():
     print("🌐 ПРОДВИНУТОЕ БРАУЗЕРНОЕ ТЕСТИРОВАНИЕ БОТА")
     print("="*70)
     print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Метод: Selenium + ChromeDriver + Session")
+    print("Метод: Selenium + ChromeDriver + Session")
     print(f"Бот: @{BOT_USERNAME}")
     print("="*70)
 
@@ -256,7 +254,7 @@ def main():
     headless = False
 
     # Запускаем браузер
-    print(f"\n🚀 Запускаю браузер...")
+    print("\n🚀 Запускаю браузер...")
     driver = setup_browser(headless=headless)
 
     try:

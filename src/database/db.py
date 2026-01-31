@@ -1,9 +1,21 @@
 """База данных SQLite"""
-from datetime import datetime
-from typing import Optional, List
 from contextlib import contextmanager
-from sqlalchemy import create_engine, Column, Integer, String, Float, Boolean, Date, DateTime, JSON, Index
-from sqlalchemy.orm import declarative_base, sessionmaker, Session
+from datetime import datetime
+from typing import List
+from typing import Optional
+
+from sqlalchemy import JSON
+from sqlalchemy import Boolean
+from sqlalchemy import Column
+from sqlalchemy import Date
+from sqlalchemy import DateTime
+from sqlalchemy import Float
+from sqlalchemy import Index
+from sqlalchemy import Integer
+from sqlalchemy import String
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import sessionmaker
 
 from ..utils.config import Config
 from ..utils.logger import logger

@@ -8,12 +8,19 @@
 - Разгрузочные недели (каждая 4-я: -25%)
 - Оптимальные протоколы интервалов (4×5 мин для VO2max)
 """
-from datetime import date, timedelta, datetime
-from typing import List, Dict, Any, Optional
+from datetime import date
+from datetime import datetime
+from datetime import timedelta
+from typing import Any
+from typing import Dict
+from typing import List
+
 from ..database.db import db
 from ..utils.logger import logger
-from .vdot_calculator import get_training_paces, get_training_paces_seconds, format_pace
-from .hr_zones import get_zone_for_workout, format_hr_range_for_workout, get_workout_hr_description
+from .hr_zones import format_hr_range_for_workout
+from .hr_zones import get_workout_hr_description
+from .vdot_calculator import get_training_paces
+from .vdot_calculator import get_training_paces_seconds
 
 
 class PlanGenerator:
@@ -560,11 +567,11 @@ class PlanGenerator:
         if self.vdot:
             vdot_source = self.user_settings.get('vdot_source', 'результату')
             lines.append(f"- VDOT: {self.vdot:.0f} (по {vdot_source})")
-            lines.append(f"- Темпы рассчитаны по Jack Daniels Running Formula")
+            lines.append("- Темпы рассчитаны по Jack Daniels Running Formula")
 
         if self.lthr:
             lines.append(f"- LTHR: {self.lthr} уд/мин")
-            lines.append(f"- Зоны пульса по Joe Friel")
+            lines.append("- Зоны пульса по Joe Friel")
 
         if not self.vdot and not self.lthr:
             lines.append("- Универсальные зоны (без персонализации)")

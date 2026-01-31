@@ -6,8 +6,9 @@
 
 import asyncio
 import os
-from pyppeteer import launch
 from datetime import datetime
+
+from pyppeteer import launch
 
 BOT_USERNAME = "training_dag_run_bot"
 SCREENSHOTS_DIR = "/Users/noor/Documents/Obsidian Vault/Бот тренера/screenshots"
@@ -17,7 +18,7 @@ async def main():
     print("🌐 БРАУЗЕРНОЕ ТЕСТИРОВАНИЕ БОТА")
     print("="*70)
     print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Метод: Pyppeteer + Chromium")
+    print("Метод: Pyppeteer + Chromium")
     print(f"Бот: @{BOT_USERNAME}")
     print("="*70 + "\n")
 

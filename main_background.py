@@ -10,11 +10,12 @@ Service 2: Фоновая логика и анализ (back_logica_raboty_i_ana
 
 НЕ делает: обработку команд пользователя (это в Service 1)
 """
-import sys
-import os
 import asyncio
+import os
+import sys
+from datetime import date
+from datetime import timedelta
 from pathlib import Path
-from datetime import datetime, date, timedelta
 
 # Добавляем корневую папку в PYTHONPATH
 sys.path.insert(0, str(Path(__file__).parent))
@@ -22,16 +23,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from src.database.init_db import init_database
-from src.database.db import db
-from src.integrations.garmin_sync import garmin_sync
-from src.integrations.ai_agent import ai_consultant
-from src.utils.logger import logger
-from src.utils.health_check import health_server
-
 # Telegram API для отправки сообщений
 from telegram import Bot
+
+from src.database.db import db
+from src.database.init_db import init_database
+from src.integrations.ai_agent import ai_consultant
+from src.integrations.garmin_sync import garmin_sync
 from src.utils.config import Config
+from src.utils.health_check import health_server
+from src.utils.logger import logger
 
 # Глобальный bot для отправки сообщений
 telegram_bot = Bot(token=Config.TELEGRAM_BOT_TOKEN)

@@ -4,12 +4,12 @@ Unit-тест для онбординга
 Проверяет логику без реального Telegram API
 """
 
-import sys
 import os
+import sys
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from unittest.mock import MagicMock, AsyncMock, patch
-import asyncio
+from unittest.mock import MagicMock
 
 # Мокаем telegram модули
 sys.modules['telegram'] = MagicMock()
@@ -47,7 +47,7 @@ def test_callback_patterns():
     bot_file = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                             'src', 'bot', 'telegram_bot.py')
 
-    with open(bot_file, 'r') as f:
+    with open(bot_file) as f:
         content = f.read()
 
     for pattern in expected_patterns:
@@ -64,7 +64,7 @@ def test_goal_callbacks():
     bot_file = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                             'src', 'bot', 'telegram_bot.py')
 
-    with open(bot_file, 'r') as f:
+    with open(bot_file) as f:
         content = f.read()
 
     # Проверяем callback_data для целей
@@ -108,7 +108,7 @@ def test_onboarding_flow_structure():
     bot_file = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                             'src', 'bot', 'telegram_bot.py')
 
-    with open(bot_file, 'r') as f:
+    with open(bot_file) as f:
         content = f.read()
 
     # Проверяем что handle_start_onboarding показывает выбор race/fitness
@@ -141,7 +141,7 @@ def test_handler_registration():
     bot_file = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                             'src', 'bot', 'telegram_bot.py')
 
-    with open(bot_file, 'r') as f:
+    with open(bot_file) as f:
         content = f.read()
 
     # Находим позиции registration

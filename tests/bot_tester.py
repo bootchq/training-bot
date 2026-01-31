@@ -14,11 +14,10 @@
 """
 
 import asyncio
-import os
 import sys
-import json
 from datetime import datetime
 from pathlib import Path
+
 
 # Цвета для терминала
 class Colors:
@@ -324,7 +323,7 @@ async def test_telethon():
                 ok("ICS файл — OAuth проблема ИСПРАВЛЕНА!")
                 results.append(True)
             else:
-                warn(f"Не ICS файл")
+                warn("Не ICS файл")
                 results.append(False)
         elif msg.text:
             if 'OAuth' in msg.text or 'авторизов' in msg.text.lower():
@@ -371,7 +370,10 @@ async def test_unit():
     sys.path.insert(0, str(PROJECT_DIR / 'src'))
 
     try:
-        from unittest.mock import Mock, AsyncMock, patch
+        from unittest.mock import AsyncMock
+        from unittest.mock import Mock
+        from unittest.mock import patch
+
         from bot.telegram_bot import TelegramTrainingBot
 
         bot = TelegramTrainingBot()

@@ -6,9 +6,11 @@ LTHR (Lactate Threshold Heart Rate) — пульс на лактатном по�
 
 Источник: Joe Friel "The Triathlete's Training Bible"
 """
-from typing import Dict, List, Tuple, Optional
-from ..utils.logger import logger
+from typing import Dict
+from typing import Optional
+from typing import Tuple
 
+from ..utils.logger import logger
 
 # Зоны пульса по Joe Friel (процент от LTHR)
 HR_ZONES_FRIEL = {
@@ -105,7 +107,7 @@ def format_hr_zones_summary(lthr: int) -> str:
 
     lines = [
         f"**Зоны пульса (LTHR: {lthr} уд/мин)**",
-        f"(рассчитаны по методологии Joe Friel)\n"
+        "(рассчитаны по методологии Joe Friel)\n"
     ]
 
     for zone_num in sorted(zones.keys()):

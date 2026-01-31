@@ -6,9 +6,11 @@ VDOT — это индекс беговой формы, позволяющий �
 
 Источник: Jack Daniels "Daniels' Running Formula"
 """
-from typing import Dict, Optional, Tuple
-from ..utils.logger import logger
+from typing import Dict
+from typing import Optional
+from typing import Tuple
 
+from ..utils.logger import logger
 
 # Таблица VDOT: время в секундах для каждой дистанции
 # Формат: VDOT -> {distance: time_seconds}

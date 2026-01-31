@@ -1,8 +1,9 @@
 """Тестирование статистики"""
-import sys
 import os
+import sys
+from datetime import date
+from datetime import timedelta
 from pathlib import Path
-from datetime import date, timedelta
 
 # Устанавливаем минимальные переменные окружения
 os.environ.setdefault('TELEGRAM_BOT_TOKEN', 'dummy')
@@ -12,8 +13,9 @@ os.environ.setdefault('GARMIN_PASSWORD', 'dummy')
 # Добавляем корень проекта в путь
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.database.db import db, Training
 from src.core.stats_calculator import StatsCalculator
+from src.database.db import Training
+from src.database.db import db
 from src.utils.logger import logger
 
 

@@ -1,13 +1,16 @@
 """Тесты для выбора типа забега (race type selection)"""
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+from unittest.mock import patch
+
 import pytest
-from unittest.mock import MagicMock, AsyncMock, patch
 
 
 @pytest.mark.asyncio
 async def test_handle_race_type_half(bot, mock_update, mock_context):
     """Тест выбора полумарафона (21 км)"""
     mock_update.callback_query.data = "racetype_half"
-    
+
     with patch('src.bot.telegram_bot.db') as mock_db, \
          patch.object(bot, '_ask_goal_date', new_callable=AsyncMock) as mock_ask_date:
 
@@ -27,7 +30,7 @@ async def test_handle_race_type_half(bot, mock_update, mock_context):
 async def test_handle_race_type_marathon(bot, mock_update, mock_context):
     """Тест выбора марафона (42 км)"""
     mock_update.callback_query.data = "racetype_marathon"
-    
+
     with patch('src.bot.telegram_bot.db') as mock_db, \
          patch.object(bot, '_ask_goal_date', new_callable=AsyncMock) as mock_ask_date:
 
@@ -47,7 +50,7 @@ async def test_handle_race_type_marathon(bot, mock_update, mock_context):
 async def test_handle_race_type_custom(bot, mock_update, mock_context):
     """Тест выбора своей дистанции"""
     mock_update.callback_query.data = "racetype_custom"
-    
+
     with patch('src.bot.telegram_bot.db') as mock_db:
         mock_user = MagicMock(id=1)
         mock_db.get_or_create_user.return_value = mock_user
@@ -69,7 +72,7 @@ async def test_handle_race_type_custom(bot, mock_update, mock_context):
 async def test_handle_race_type_trail(bot, mock_update, mock_context):
     """Тест выбора трейла"""
     mock_update.callback_query.data = "racetype_trail"
-    
+
     with patch('src.bot.telegram_bot.db') as mock_db:
         mock_user = MagicMock(id=1)
         mock_db.get_or_create_user.return_value = mock_user
@@ -91,7 +94,7 @@ async def test_handle_race_type_trail(bot, mock_update, mock_context):
 async def test_handle_race_type_unknown(bot, mock_update, mock_context):
     """Тест обработки неизвестного типа забега"""
     mock_update.callback_query.data = "racetype_unknown"
-    
+
     with patch('src.bot.telegram_bot.db') as mock_db:
         mock_user = MagicMock(id=1)
         mock_db.get_or_create_user.return_value = mock_user

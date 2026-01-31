@@ -1,21 +1,25 @@
 """Синхронизация с Google Calendar и генерация ICS файлов"""
-import os
 import pickle
-from datetime import datetime, timedelta, date
-from typing import Optional, List, Dict, Any
-from pathlib import Path
 import uuid
+from datetime import date
+from datetime import datetime
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+from typing import Dict
+from typing import Optional
 
 from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
-from icalendar import Calendar, Event, vText
+from icalendar import Calendar
+from icalendar import Event
 
-from ..database.db import db, TrainingPlan
-from ..utils.logger import logger
+from ..database.db import TrainingPlan
+from ..database.db import db
 from ..utils.config import Config
+from ..utils.logger import logger
 
 # Права доступа к календарю
 SCOPES = ['https://www.googleapis.com/auth/calendar']

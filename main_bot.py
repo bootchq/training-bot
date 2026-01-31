@@ -9,19 +9,20 @@ Service 1: Коммуникация с пользователем (front_kommuni
 
 НЕ делает: анализ тренировок, schedulers, проверку Garmin
 """
-import sys
-import os
 import asyncio
+import os
+import sys
 from pathlib import Path
 
 # Добавляем корневую папку в PYTHONPATH
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.utils.logger import logger
-from src.utils.health_check import health_server
-from src.database.init_db import init_database
-from src.bot.telegram_bot import TrainingBot
 from telegram import Update
+
+from src.bot.telegram_bot import TrainingBot
+from src.database.init_db import init_database
+from src.utils.health_check import health_server
+from src.utils.logger import logger
 
 
 async def run_bot():

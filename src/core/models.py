@@ -1,8 +1,12 @@
 """Модели данных приложения"""
-from datetime import date, datetime
-from typing import Optional, Dict
+from datetime import date
+from datetime import datetime
 from enum import Enum
-from pydantic import BaseModel, Field
+from typing import Dict
+from typing import Optional
+
+from pydantic import BaseModel
+from pydantic import Field
 
 
 class TrainingType(str, Enum):

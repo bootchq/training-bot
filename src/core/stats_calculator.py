@@ -1,9 +1,12 @@
 """Расчёт статистики тренировок"""
-from datetime import date, timedelta
-from typing import Dict, Any, List
+from datetime import date
+from datetime import timedelta
+from typing import Any
+from typing import Dict
+from typing import List
 
-from ..database.db import db, Training
-from ..utils.logger import logger
+from ..database.db import Training
+from ..database.db import db
 
 
 class StatsCalculator:
@@ -153,12 +156,12 @@ class StatsCalculator:
             Список строк (каждая строка = отдельное сообщение)
         """
         if stats['trainings_count'] == 0:
-            return [f"📊 Статистика за неделю\n\n❌ Нет тренировок за последние 7 дней"]
+            return ["📊 Статистика за неделю\n\n❌ Нет тренировок за последние 7 дней"]
 
         messages = []
 
         # Первое сообщение - заголовок
-        header = f"📊 Статистика за неделю\n"
+        header = "📊 Статистика за неделю\n"
         header += f"({stats['start_date'].strftime('%d.%m')} - {stats['end_date'].strftime('%d.%m')})\n\n"
         header += f"🏃 Тренировок: {stats['trainings_count']}\n"
         header += f"📏 Объём: {stats['total_distance']:.1f} км\n"
@@ -311,9 +314,9 @@ class StatsCalculator:
             Отформатированная строка
         """
         if stats['trainings_count'] == 0:
-            return f"📊 Статистика за месяц\n\n❌ Нет тренировок за последние 30 дней"
+            return "📊 Статистика за месяц\n\n❌ Нет тренировок за последние 30 дней"
 
-        text = f"📊 Статистика за месяц\n"
+        text = "📊 Статистика за месяц\n"
         text += f"({stats['start_date'].strftime('%d.%m')} - {stats['end_date'].strftime('%d.%m')})\n\n"
 
         text += f"🏃 Тренировок: {stats['trainings_count']}\n"
@@ -341,7 +344,7 @@ class StatsCalculator:
             return f"📊 Статистика\n\n❌ Нет тренировок за {period_ru}"
 
         period_ru = "Неделя" if period == "week" else "Месяц"
-        text = f"📊 Статистика\n\n"
+        text = "📊 Статистика\n\n"
         text += f"**[{period_ru}]**\n"
         text += f"({stats['start_date'].strftime('%d.%m')} - {stats['end_date'].strftime('%d.%m')})\n\n"
 

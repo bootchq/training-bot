@@ -1,9 +1,9 @@
 """Health check HTTP сервер для Railway + ICS календарь подписка"""
-import asyncio
-from aiohttp import web
-from datetime import datetime, timedelta
+from datetime import datetime
+from datetime import timedelta
 from typing import Optional
-import uuid
+
+from aiohttp import web
 
 from .logger import logger
 
@@ -63,8 +63,10 @@ class HealthCheckServer:
 
         try:
             # Импортируем здесь чтобы избежать циклических импортов
+            from icalendar import Calendar
+            from icalendar import Event
+
             from ..database.db import db
-            from icalendar import Calendar, Event
 
             # Находим пользователя по токену
             user = db.get_user_by_calendar_token(token)
@@ -178,7 +180,7 @@ class HealthCheckServer:
             await self.site.start()
 
             logger.info(f"✅ HTTP сервер запущен на порту {self.port}")
-            logger.info(f"   Endpoints: /, /health, /calendar/{{token}}.ics")
+            logger.info("   Endpoints: /, /health, /calendar/{token}.ics")
 
         except Exception as e:
             logger.error(f"Ошибка запуска HTTP сервера: {e}")

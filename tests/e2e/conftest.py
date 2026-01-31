@@ -2,18 +2,19 @@
 Pytest fixtures для E2E тестирования через Telethon.
 """
 
-import os
 import asyncio
+import os
+from collections.abc import AsyncGenerator
+
 import pytest
-from typing import AsyncGenerator
 
 # Загружаем .env.e2e
 from dotenv import load_dotenv
+
 load_dotenv(os.path.join(os.path.dirname(__file__), '../../.env.e2e'))
 
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-
 
 # Конфигурация
 API_ID = int(os.getenv("TELEGRAM_API_ID", "0"))

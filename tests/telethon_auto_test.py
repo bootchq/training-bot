@@ -7,8 +7,8 @@
 import asyncio
 import os
 import sys
-from telethon import TelegramClient, events
-from telethon.tl.types import KeyboardButtonCallback
+
+from telethon import TelegramClient
 
 # Конфигурация
 API_ID = None  # Получим автоматически или попросим
@@ -28,7 +28,7 @@ config_file = os.path.expanduser('~/.telegram_api_config')
 
 if os.path.exists(config_file):
     print("✅ Нашел сохраненные credentials")
-    with open(config_file, 'r') as f:
+    with open(config_file) as f:
         lines = f.readlines()
         API_ID = int(lines[0].strip())
         API_HASH = lines[1].strip()
@@ -100,7 +100,7 @@ async def main():
     messages = await client.get_messages(bot, limit=1)
     if messages:
         last_msg = messages[0]
-        print(f"✅ Получен ответ от бота")
+        print("✅ Получен ответ от бота")
         print(f"   Текст: {last_msg.text[:100]}...")
 
         # Проверяем inline кнопки
@@ -136,17 +136,17 @@ async def main():
                                 # КРИТИЧЕСКАЯ ПРОВЕРКА - кнопка Календарь
                                 if 'календарь' in btn_text.lower():
                                     if response.file.name.endswith('.ics'):
-                                        print(f"   🎉 УСПЕХ! ICS файл получен!")
-                                        print(f"   ✅ Баг с OAuth календарем ИСПРАВЛЕН!")
+                                        print("   🎉 УСПЕХ! ICS файл получен!")
+                                        print("   ✅ Баг с OAuth календарем ИСПРАВЛЕН!")
                                     else:
                                         print(f"   ⚠️  Файл не ICS: {response.file.name}")
                             elif response.text:
                                 resp_text = response.text[:150]
                                 print(f"   📝 Ответ: {resp_text}...")
                             else:
-                                print(f"   ⚠️  Непонятный ответ")
+                                print("   ⚠️  Непонятный ответ")
 
-                        print(f"   ✅ Клик успешен!")
+                        print("   ✅ Клик успешен!")
 
                     except Exception as e:
                         print(f"   ❌ Ошибка клика: {e}")
@@ -170,14 +170,14 @@ async def main():
         if msg.document:
             print(f"✅ Бот отправил файл: {msg.file.name}")
             if msg.file.name.endswith('.ics'):
-                print(f"   ✅ Это ICS файл!")
-                print(f"   ✅ Команда /calendar работает правильно")
+                print("   ✅ Это ICS файл!")
+                print("   ✅ Команда /calendar работает правильно")
             else:
-                print(f"   ⚠️  Не ICS файл")
+                print("   ⚠️  Не ICS файл")
         elif msg.text:
             print(f"📝 Ответ: {msg.text[:200]}...")
             if 'OAuth' in msg.text or 'авторизоваться' in msg.text:
-                print(f"   ❌ FAIL: Все еще пытается использовать OAuth!")
+                print("   ❌ FAIL: Все еще пытается использовать OAuth!")
 
     print()
 

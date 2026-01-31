@@ -5,8 +5,9 @@
 Сессия сохранена, авторизация НЕ НУЖНА!
 """
 
-import time
 import os
+import time
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -121,18 +122,18 @@ try:
 
                 # КЛИКАЕМ!
                 btn.click()
-                print(f"   ✅ КЛИКНУЛ!", flush=True)
+                print("   ✅ КЛИКНУЛ!", flush=True)
                 time.sleep(2)
 
                 # Скриншот
                 driver.save_screenshot(f"{SCREENSHOTS_DIR}/connected_03_btn_{idx}.png")
-                print(f"   📸 Скриншот сохранен", flush=True)
+                print("   📸 Скриншот сохранен", flush=True)
 
                 # Проверяем ответ
                 page = driver.page_source
                 if '.ics' in page or 'document' in page:
                     if 'календарь' in btn_text.lower():
-                        print(f"   🎉 КНОПКА КАЛЕНДАРЬ ОТПРАВИЛА ФАЙЛ!", flush=True)
+                        print("   🎉 КНОПКА КАЛЕНДАРЬ ОТПРАВИЛА ФАЙЛ!", flush=True)
 
             except Exception as e:
                 print(f"   ⚠️  Ошибка: {e}", flush=True)

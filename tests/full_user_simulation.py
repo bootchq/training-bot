@@ -3,7 +3,6 @@
 Эмулирует реального человека который тыкает все кнопки и проверяет ответы
 """
 import os
-import json
 import time
 from datetime import datetime
 
@@ -57,7 +56,7 @@ class RealUserSimulation:
 
         if result.get('ok'):
             bot = result['result']
-            print(f"\n✅ Бот найден!")
+            print("\n✅ Бот найден!")
             print(f"   Имя: {bot['first_name']}")
             print(f"   Username: @{bot['username']}")
             print(f"   ID: {bot['id']}")
@@ -65,7 +64,7 @@ class RealUserSimulation:
             self.log_test("Бот онлайн", True, f"@{bot['username']}")
             return bot
         else:
-            print(f"\n❌ Бот недоступен")
+            print("\n❌ Бот недоступен")
             self.log_test("Бот онлайн", False, "API error")
             return None
 
@@ -93,7 +92,7 @@ class RealUserSimulation:
                 print(f"\n⚠️  Не хватает команд: {missing}")
                 self.log_test("Все команды на месте", False, f"Отсутствуют: {missing}")
             else:
-                print(f"\n✅ Все нужные команды на месте!")
+                print("\n✅ Все нужные команды на месте!")
                 self.log_test("Все команды на месте", True, f"{len(commands)} команд")
 
             # Проверяю описания
@@ -109,7 +108,7 @@ class RealUserSimulation:
 
             return True
         else:
-            print(f"\n❌ Не могу получить список команд")
+            print("\n❌ Не могу получить список команд")
             self.log_test("Все команды на месте", False, "API error")
             return False
 
@@ -126,19 +125,19 @@ class RealUserSimulation:
             url = info.get('url', '')
 
             if url:
-                print(f"\n📡 Бот работает через WEBHOOK")
+                print("\n📡 Бот работает через WEBHOOK")
                 print(f"   URL: {url}")
                 print(f"   Pending: {info.get('pending_update_count', 0)} updates")
                 mode = "webhook"
             else:
-                print(f"\n📡 Бот работает в режиме POLLING")
-                print(f"   (постоянно опрашивает Telegram)")
+                print("\n📡 Бот работает в режиме POLLING")
+                print("   (постоянно опрашивает Telegram)")
                 mode = "polling"
 
             self.log_test("Режим работы", True, mode)
             return mode
         else:
-            print(f"\n❌ Не могу узнать режим работы")
+            print("\n❌ Не могу узнать режим работы")
             self.log_test("Режим работы", False, "API error")
             return None
 
@@ -162,12 +161,12 @@ class RealUserSimulation:
                     broken.append(f"/{cmd['command']}: '{desc}'")
 
             if broken:
-                print(f"\n⚠️  Найден сырой Markdown в описаниях:")
+                print("\n⚠️  Найден сырой Markdown в описаниях:")
                 for b in broken:
                     print(f"   {b}")
                 self.log_test("Форматирование корректное", False, "Сырой Markdown")
             else:
-                print(f"\n✅ Форматирование выглядит нормально")
+                print("\n✅ Форматирование выглядит нормально")
                 self.log_test("Форматирование корректное", True, "OK")
 
             return len(broken) == 0
@@ -206,14 +205,14 @@ class RealUserSimulation:
         result = self.api('getUpdates', limit=1, timeout=1)
 
         if result.get('ok'):
-            print(f"\n⚠️  getUpdates работает - возможно бот НЕ на production")
+            print("\n⚠️  getUpdates работает - возможно бот НЕ на production")
             print("   (или временно не активен)")
             self.log_test("Бот на production", False, "getUpdates доступен")
             return False
         else:
             error = result.get('error', '')
             if '409' in str(error) or 'Conflict' in str(error):
-                print(f"\n✅ Получил конфликт - бот АКТИВЕН на production!")
+                print("\n✅ Получил конфликт - бот АКТИВЕН на production!")
                 print("   (другой процесс уже получает updates)")
                 self.log_test("Бот на production", True, "409 Conflict")
                 return True
@@ -245,12 +244,12 @@ class RealUserSimulation:
         print("=" * 70)
 
         if total - passed > 0:
-            print(f"\n⚠️ ТРЕБУЕТСЯ ВНИМАНИЕ:")
+            print("\n⚠️ ТРЕБУЕТСЯ ВНИМАНИЕ:")
             for name, result, details in self.tests:
                 if not result:
                     print(f"  • {name}: {details}")
         else:
-            print(f"\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
+            print("\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
 
         print("\n💡 РЕКОМЕНДАЦИИ:")
         print("  1. Откройtest Telegram и проверь бота вручную")
@@ -265,7 +264,7 @@ class RealUserSimulation:
         print("\n🚀 ПОЛНАЯ СИМУЛЯЦИЯ РЕАЛЬНОГО ПОЛЬЗОВАТЕЛЯ")
         print("="*70)
         print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Метод: API симуляция действий пользователя")
+        print("Метод: API симуляция действий пользователя")
         print("="*70)
 
         # Запускаем все тесты по порядку

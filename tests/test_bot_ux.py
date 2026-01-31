@@ -3,15 +3,22 @@
 Симулирует действия пользователя и проверяет ответы бота
 """
 import asyncio
-import sys
 import os
+import sys
 
 # Добавляем путь к src
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
-from telegram import Update, User, Chat, Message, CallbackQuery
+from unittest.mock import AsyncMock
+from unittest.mock import Mock
+
+from telegram import CallbackQuery
+from telegram import Chat
+from telegram import Message
+from telegram import Update
+from telegram import User
 from telegram.ext import ContextTypes
-from unittest.mock import Mock, AsyncMock, MagicMock
+
 from src.bot.telegram_bot import TrainingBot
 from src.database.db import db
 

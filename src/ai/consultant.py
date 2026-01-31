@@ -1,8 +1,12 @@
 """AI-консультант для анализа тренировок"""
-from datetime import date, datetime, timedelta
-from typing import Optional, Dict, Any
-from pathlib import Path
 import json
+from datetime import date
+from datetime import datetime
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+from typing import Dict
+from typing import Optional
 
 try:
     from openai import OpenAI
@@ -10,9 +14,10 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-from ..database.db import db, Training, WellnessSurvey
-from ..utils.logger import logger
+from ..database.db import Training
+from ..database.db import db
 from ..utils.config import Config
+from ..utils.logger import logger
 
 
 class TrainingConsultant:
@@ -134,14 +139,14 @@ class TrainingConsultant:
 
         # Добавляем зоны пульса если есть
         if training.hr_zones:
-            prompt += f"\n**Время в зонах пульса:**\n"
+            prompt += "\n**Время в зонах пульса:**\n"
             for zone, minutes in training.hr_zones.items():
                 if minutes > 0:
                     prompt += f"- {zone.upper()}: {minutes} мин\n"
 
         # Добавляем данные опроса если есть
         if wellness_data:
-            prompt += f"\n**Самочувствие после тренировки:**\n"
+            prompt += "\n**Самочувствие после тренировки:**\n"
             prompt += f"- Оценка тренировки: {wellness_data.get('training_rating', 'не указана')}/10\n"
             prompt += f"- Общее самочувствие: {self._wellness_to_text(wellness_data.get('wellness_rating'))}\n"
             prompt += f"- Боль/дискомфорт: {'Да' if wellness_data.get('pain_reported') else 'Нет'}\n"
@@ -211,7 +216,7 @@ class TrainingConsultant:
             return {}
 
         try:
-            with open(self.usage_file, 'r') as f:
+            with open(self.usage_file) as f:
                 return json.load(f)
         except Exception as e:
             logger.error(f"Ошибка загрузки данных использования: {e}")

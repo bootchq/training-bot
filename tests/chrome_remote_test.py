@@ -4,14 +4,13 @@
 Запускаем Chrome, подключаемся к нему, КЛИКАЕМ ПО КНОПКАМ!
 """
 
+import os
 import subprocess
 import time
-import os
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 
 CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 TELEGRAM_WEB = "https://web.telegram.org/k/"
@@ -33,7 +32,7 @@ os.makedirs(USER_DATA_DIR, exist_ok=True)
 print("🚀 ШАГ 1: Запускаю Chrome с remote debugging...")
 chrome_process = subprocess.Popen([
     CHROME_PATH,
-    f"--remote-debugging-port=9222",
+    "--remote-debugging-port=9222",
     f"--user-data-dir={USER_DATA_DIR}",
     "--no-first-run",
     "--no-default-browser-check",
@@ -69,7 +68,7 @@ try:
         time.sleep(5)
 
     driver.save_screenshot(f"{SCREENSHOTS_DIR}/chrome_remote_01.png")
-    print(f"   📸 Скриншот: chrome_remote_01.png")
+    print("   📸 Скриншот: chrome_remote_01.png")
     print()
 
     # Шаг 4: Авторизация
@@ -102,9 +101,9 @@ try:
     print("="*70)
 
     print("💡 В ОТКРЫВШЕМСЯ CHROME:")
-    print(f"   1. Нажми на поиск (лупа вверху)")
+    print("   1. Нажми на поиск (лупа вверху)")
     print(f"   2. Введи: @{BOT_USERNAME}")
-    print(f"   3. Открой чат с ботом")
+    print("   3. Открой чат с ботом")
     print()
 
     input("   Нажми Enter когда откроешь чат с ботом...")
@@ -196,7 +195,7 @@ try:
 
                 # КЛИКАЕМ!
                 button.click()
-                print(f"   ✅ КЛИКНУЛ!")
+                print("   ✅ КЛИКНУЛ!")
 
                 time.sleep(2)
 
@@ -207,9 +206,9 @@ try:
                 # Проверяем что в чате (есть ли файл)
                 page = driver.page_source
                 if 'document' in page or '.ics' in page or 'download' in page.lower():
-                    print(f"   📎 Похоже бот отправил файл!")
+                    print("   📎 Похоже бот отправил файл!")
                     if 'календарь' in btn_text.lower():
-                        print(f"   🎉 КНОПКА КАЛЕНДАРЬ РАБОТАЕТ!")
+                        print("   🎉 КНОПКА КАЛЕНДАРЬ РАБОТАЕТ!")
 
             except Exception as e:
                 print(f"   ⚠️  Ошибка клика: {e}")

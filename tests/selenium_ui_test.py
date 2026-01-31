@@ -4,15 +4,15 @@
 Эмулирует реальные действия пользователя в браузере
 """
 
-import time
 import os
+import time
 from datetime import datetime
+
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 
 BOT_USERNAME = "training_dag_run_bot"
@@ -23,7 +23,7 @@ def main():
     print("🌐 БРАУЗЕРНОЕ ТЕСТИРОВАНИЕ БОТА ЧЕРЕЗ SELENIUM")
     print("="*70)
     print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Метод: Selenium + ChromeDriver")
+    print("Метод: Selenium + ChromeDriver")
     print(f"Бот: @{BOT_USERNAME}")
     print("="*70 + "\n")
 

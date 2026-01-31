@@ -9,9 +9,10 @@
 ✅ АВТОРИЗАЦИЯ НЕ НУЖНА - сессия сохранена!
 """
 
-import time
-import subprocess
 import os
+import subprocess
+import time
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 
@@ -31,6 +32,7 @@ os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
 
 # Проверяем запущен ли Chrome
 import requests
+
 chrome_running = False
 try:
     r = requests.get("http://127.0.0.1:9222/json/version", timeout=2)
@@ -171,7 +173,7 @@ if buttons_data and len(buttons_data) > 0:
             }}
         """)
 
-        print(f"   ✅ КЛИКНУЛ")
+        print("   ✅ КЛИКНУЛ")
         time.sleep(3)
 
         driver.save_screenshot(f"{SCREENSHOTS_DIR}/semi_03_btn{idx+1}.png")
@@ -179,9 +181,9 @@ if buttons_data and len(buttons_data) > 0:
         # Проверяем результат
         page_source = driver.page_source
         if '.ics' in page_source:
-            print(f"   🎉 ICS ФАЙЛ ОТПРАВЛЕН!")
+            print("   🎉 ICS ФАЙЛ ОТПРАВЛЕН!")
         elif 'oauth' in page_source.lower():
-            print(f"   ⚠️  OAuth ошибка обнаружена")
+            print("   ⚠️  OAuth ошибка обнаружена")
 
     print()
     print("="*70)

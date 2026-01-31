@@ -1,13 +1,21 @@
 """Интеграция с Garmin Connect"""
-from datetime import date, timedelta
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
 import shutil
-from garminconnect import Garmin, GarminConnectConnectionError, GarminConnectAuthenticationError
+from datetime import date
+from datetime import timedelta
+from pathlib import Path
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+from typing import Tuple
 
+from garminconnect import Garmin
+from garminconnect import GarminConnectAuthenticationError
+
+from ..database.db import Training
+from ..database.db import db
 from ..utils.config import Config
 from ..utils.logger import logger
-from ..database.db import db, Training
 
 
 class GarminSync:

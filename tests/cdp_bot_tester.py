@@ -9,9 +9,8 @@ CDP события являются "trusted" и обходят browser security
 """
 
 import asyncio
-import subprocess
-import time
 import os
+import subprocess
 from pathlib import Path
 
 # Конфигурация
@@ -177,7 +176,7 @@ async def test_with_pyppeteer():
         await tg_page.goto(TELEGRAM_URL, waitUntil='networkidle0', timeout=30000)
         await asyncio.sleep(3)
 
-    ok(f"Страница бота открыта")
+    ok("Страница бота открыта")
 
     # Отправляем /start
     print_header("ТЕСТ: Отправка /start")
@@ -388,7 +387,7 @@ async def test_with_pyppeteer():
                             warn(f"   Ответ: {new_message['text'][:80]}...")
                             results.append(True)  # Бот ответил, это успех
                     else:
-                        ok(f"   Бот ответил")
+                        ok("   Бот ответил")
                         results.append(True)
                 else:
                     warn("   Нет ответа от бота")

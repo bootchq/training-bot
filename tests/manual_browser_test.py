@@ -4,13 +4,14 @@
 Браузер остается открытым до твоего указания
 """
 
-import time
 import os
 import sys
+import time
 from datetime import datetime
+
 from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
 
 # Отключаем буферизацию вывода
@@ -23,7 +24,7 @@ print("="*70, flush=True)
 print("🌐 РУЧНОЕ БРАУЗЕРНОЕ ТЕСТИРОВАНИЕ БОТА", flush=True)
 print("="*70, flush=True)
 print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
-print(f"Браузер: Google Chrome", flush=True)
+print("Браузер: Google Chrome", flush=True)
 print(f"Бот: @{BOT_USERNAME}", flush=True)
 print("="*70, flush=True)
 print(flush=True)
@@ -71,9 +72,9 @@ print("   • Или нажми 'LOG IN BY PHONE NUMBER' и введи номе�
 print(flush=True)
 
 print("ШАГ 2: Поиск бота", flush=True)
-print(f"   • Нажми на иконку поиска (лупа вверху слева)", flush=True)
+print("   • Нажми на иконку поиска (лупа вверху слева)", flush=True)
 print(f"   • Введи: @{BOT_USERNAME}", flush=True)
-print(f"   • Открой чат с ботом", flush=True)
+print("   • Открой чат с ботом", flush=True)
 print(flush=True)
 
 print("ШАГ 3: Тестирование команд", flush=True)

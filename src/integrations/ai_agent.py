@@ -1,12 +1,14 @@
 """AI-агент для разговора и изменения плана тренировок"""
 import json
-from datetime import date, timedelta
-from typing import Dict, Any, Optional, List
+from datetime import date
+from datetime import timedelta
+
 from openai import OpenAI
 
+from ..database.db import TrainingPlan
+from ..database.db import db
 from ..utils.config import Config
 from ..utils.logger import logger
-from ..database.db import db, TrainingPlan
 
 
 class AIAgent:

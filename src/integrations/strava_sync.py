@@ -1,12 +1,19 @@
 """Интеграция со Strava API"""
 import time
-from datetime import date, timedelta, datetime
-from typing import List, Dict, Any, Optional
+from datetime import date
+from datetime import datetime
+from datetime import timedelta
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
+
 import requests
 
+from ..database.db import Training
+from ..database.db import db
 from ..utils.config import Config
 from ..utils.logger import logger
-from ..database.db import db, Training
 
 
 class StravaSync:

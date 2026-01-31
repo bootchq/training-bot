@@ -8,8 +8,9 @@
 4. После авторизации скрипт автоматически протестирует бота
 """
 import asyncio
-from playwright.async_api import async_playwright
 import os
+
+from playwright.async_api import async_playwright
 
 
 async def test_telegram_web_bot():
@@ -257,7 +258,7 @@ async def test_telegram_web_bot():
         if passed == total:
             print("\n🎉 ВСЕ БРАУЗЕРНЫЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
         else:
-            print(f"\n⚠️ Некоторые тесты провалились. Проверь логи выше.")
+            print("\n⚠️ Некоторые тесты провалились. Проверь логи выше.")
 
         print("\n⏸️  Браузер останется открытым для ручной проверки")
         print("Нажми Enter для завершения и закрытия браузера...")

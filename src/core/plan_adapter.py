@@ -1,8 +1,14 @@
 """Адаптация плана тренировок"""
-from datetime import date, timedelta
-from typing import Optional, Dict, Any, List
+from datetime import date
+from datetime import timedelta
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
 
-from ..database.db import db, Training, TrainingPlan, WellnessSurvey
+from ..database.db import Training
+from ..database.db import TrainingPlan
+from ..database.db import db
 from ..utils.logger import logger
 
 
@@ -170,7 +176,7 @@ class PlanAdapter:
                 type='easy',
                 description=f"[АДАПТИРОВАНО] Восстановление после перевыполнения. Было: {next_training.type}"
             )
-            changes.append(f"Следующая тренировка изменена на лёгкую (восстановление)")
+            changes.append("Следующая тренировка изменена на лёгкую (восстановление)")
 
         return changes
 
@@ -207,19 +213,19 @@ class PlanAdapter:
         if sleep_quality == 'bad':
             total_reduction += 0.20
             reasons.append("плохой сон")
-            logger.info(f"Wellness: плохой сон -> -20%")
+            logger.info("Wellness: плохой сон -> -20%")
 
         # 2. Усталость (wellness_rating=1)
         if wellness_rating == 1:
             total_reduction += 0.15
             reasons.append("усталость")
-            logger.info(f"Wellness: усталость -> -15%")
+            logger.info("Wellness: усталость -> -15%")
 
         # 3. Боль — серьёзный сигнал
         if pain_reported:
             total_reduction += 0.25
             reasons.append("боль/дискомфорт")
-            logger.info(f"Wellness: боль -> -25%")
+            logger.info("Wellness: боль -> -25%")
 
         # 4. Плохая оценка тренировки (<=4)
         if training_rating <= 4:

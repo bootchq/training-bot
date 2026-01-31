@@ -6,8 +6,9 @@ Integration тесты для парсинга времени тренирово
 - Диапазоны часов: "с 19 до 21", "19-21"
 - Диапазоны с минутами: "с 19:10 до 20:40", "19:30-21:00"
 """
-import pytest
 import re
+
+import pytest
 
 
 def parse_training_time(text: str) -> int:

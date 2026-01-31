@@ -1,8 +1,15 @@
 """Система персональных рекордов"""
-from datetime import date as dt_date, timedelta
-from typing import Dict, List, Optional, Tuple
+from datetime import date as dt_date
+from datetime import timedelta
+from typing import Dict
+from typing import List
+from typing import Optional
+
 from sqlalchemy import and_
-from ..database.db import db, Training, PersonalRecord
+
+from ..database.db import PersonalRecord
+from ..database.db import Training
+from ..database.db import db
 from ..utils.logger import logger
 
 

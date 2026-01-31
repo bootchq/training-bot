@@ -2,21 +2,23 @@
 # КРИТИЧНО: Устанавливаем таймзону MSK ПЕРЕД всеми импортами
 import os
 import time
+
 os.environ['TZ'] = 'Europe/Moscow'
 time.tzset()  # Применяем изменение таймзоны
 
-import sys
 import asyncio
+import sys
 from pathlib import Path
 
 # Добавляем корневую папку в PYTHONPATH
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.utils.logger import logger
-from src.utils.health_check import health_server
-from src.database.init_db import init_database
-from src.bot.telegram_bot import TrainingBot
 from telegram import Update
+
+from src.bot.telegram_bot import TrainingBot
+from src.database.init_db import init_database
+from src.utils.health_check import health_server
+from src.utils.logger import logger
 
 
 async def run_all():

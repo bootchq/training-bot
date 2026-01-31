@@ -1,7 +1,8 @@
 """Утилиты для работы со временем в правильной таймзоне"""
-from datetime import datetime, date, time as dt_time
+from datetime import date
+from datetime import datetime
+from datetime import time as dt_time
 from zoneinfo import ZoneInfo
-
 
 # Таймзона Москвы
 MSK = ZoneInfo("Europe/Moscow")

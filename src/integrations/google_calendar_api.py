@@ -1,17 +1,20 @@
 """Интеграция с Google Calendar API через OAuth"""
 import os
-from datetime import datetime, timedelta
-from typing import Optional, List, Dict, Any
+from datetime import datetime
+from datetime import timedelta
+from typing import Any
+from typing import Dict
+from typing import Optional
 
+from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 
+from ..database.db import TrainingPlan
+from ..database.db import db
 from ..utils.config import Config
 from ..utils.logger import logger
-from ..database.db import db, TrainingPlan
-
 
 # Области доступа для Calendar API
 SCOPES = ['https://www.googleapis.com/auth/calendar.events']
@@ -80,7 +83,7 @@ class GoogleCalendarAPI:
         try:
             # Читаем client_id и client_secret из credentials.json
             import json
-            with open(self.credentials_path, 'r') as f:
+            with open(self.credentials_path) as f:
                 creds_data = json.load(f)
 
             if 'installed' in creds_data:

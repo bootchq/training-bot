@@ -4,9 +4,10 @@
 Использует ТВОЙ реальный профиль Chrome - авторизация ОДИН РАЗ, потом навсегда сохранена!
 """
 
+import os
 import subprocess
 import time
-import os
+
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -195,7 +196,7 @@ if buttons:
             print(f"\n{idx}. {btn_text}", flush=True)
 
             btn.click()
-            print(f"   ✅ КЛИКНУЛ!", flush=True)
+            print("   ✅ КЛИКНУЛ!", flush=True)
             time.sleep(2)
 
             driver.save_screenshot(f"{SCREENSHOTS_DIR}/session_03_btn{idx}.png")
@@ -203,7 +204,7 @@ if buttons:
             # Проверяем файл
             page = driver.page_source
             if '.ics' in page and 'календарь' in btn_text.lower():
-                print(f"   🎉 КАЛЕНДАРЬ ОТПРАВИЛ ICS ФАЙЛ!", flush=True)
+                print("   🎉 КАЛЕНДАРЬ ОТПРАВИЛ ICS ФАЙЛ!", flush=True)
 
         except Exception as e:
             print(f"   ⚠️  {e}", flush=True)

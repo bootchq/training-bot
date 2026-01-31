@@ -1,14 +1,13 @@
 """Тестирование Garmin-интеграции"""
 import sys
 from pathlib import Path
-from datetime import date
 
 sys.path.insert(0, str(Path(__file__).parent))
 
-from src.utils.logger import logger
-from src.database.init_db import init_database
 from src.database.db import db
+from src.database.init_db import init_database
 from src.integrations.garmin_sync import garmin_sync
+from src.utils.logger import logger
 
 
 def test_sync():

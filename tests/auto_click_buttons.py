@@ -6,10 +6,10 @@
 
 import os
 import sys
-import requests
 import time
-import json
 from datetime import datetime
+
+import requests
 
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
 
@@ -98,7 +98,7 @@ time.sleep(3)
 
 if response.get('ok'):
     msg = response['result']
-    print(f"✅ Команда /start отправлена", flush=True)
+    print("✅ Команда /start отправлена", flush=True)
 
     # Проверяем есть ли inline кнопки
     if 'reply_markup' in msg:
@@ -126,7 +126,7 @@ if response.get('ok'):
                         time.sleep(2)
 
                         if click_result.get('ok'):
-                            print(f"   ✅ Клик успешен", flush=True)
+                            print("   ✅ Клик успешен", flush=True)
                         else:
                             print(f"   ⚠️  {click_result}", flush=True)
         else:
@@ -162,7 +162,7 @@ for cmd, description in commands_to_test:
         if 'document' in msg:
             doc = msg['document']
             print(f"   📎 Бот отправил файл: {doc.get('file_name', 'unknown')}", flush=True)
-            print(f"   ✅ Это ICS файл для календаря!", flush=True)
+            print("   ✅ Это ICS файл для календаря!", flush=True)
         elif 'text' in msg:
             text = msg['text'][:200]
             print(f"   📝 Ответ: {text}...", flush=True)

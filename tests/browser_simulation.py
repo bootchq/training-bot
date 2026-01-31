@@ -5,9 +5,9 @@
 import asyncio
 import os
 from datetime import datetime
-from telegram import Bot, Update
-from telegram.ext import Application
+
 from dotenv import load_dotenv
+from telegram import Bot
 
 # Загружаем токен
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -59,7 +59,7 @@ class BrowserUserSimulator:
                     # Проверяем inline кнопки
                     if latest.message.reply_markup:
                         keyboard = latest.message.reply_markup.inline_keyboard
-                        print(f"\n🔘 Inline кнопки:")
+                        print("\n🔘 Inline кнопки:")
                         for row in keyboard:
                             for button in row:
                                 print(f"   [{button.text}] -> {button.callback_data}")
@@ -74,10 +74,10 @@ class BrowserUserSimulator:
                         print(f"⚠️ WARN: Ожидали {expected_keywords}, нашли {found_keywords}")
                         self.test_results.append((command, True, "Частичное совпадение"))
                 else:
-                    print(f"ℹ️ Обновление без сообщения (возможно callback)")
+                    print("ℹ️ Обновление без сообщения (возможно callback)")
                     self.test_results.append((command, True, "Нет текста"))
             else:
-                print(f"⚠️ Нет обновлений от бота")
+                print("⚠️ Нет обновлений от бота")
                 self.test_results.append((command, False, "Нет ответа"))
 
         except Exception as e:
@@ -101,7 +101,7 @@ class BrowserUserSimulator:
             updates = await self.bot.get_updates(limit=10, timeout=5)
 
             if not updates:
-                print(f"❌ Нет сообщений с кнопками")
+                print("❌ Нет сообщений с кнопками")
                 self.test_results.append((f"Кнопка {button_text}", False, "Нет сообщений"))
                 return
 
@@ -113,14 +113,14 @@ class BrowserUserSimulator:
                     break
 
             if not message_with_buttons:
-                print(f"❌ Не найдено сообщение с inline кнопками")
+                print("❌ Не найдено сообщение с inline кнопками")
                 self.test_results.append((f"Кнопка {button_text}", False, "Нет кнопок"))
                 return
 
             # Симулируем нажатие через callback query
             # ВНИМАНИЕ: Это требует сложной эмуляции, поэтому просто отправляем команду
             print(f"⚠️ Эмуляция нажатия кнопки через прямой вызов callback_data: {callback_data}")
-            print(f"ℹ️ В реальности бот получит CallbackQuery с этим callback_data")
+            print("ℹ️ В реальности бот получит CallbackQuery с этим callback_data")
 
             # Альтернативный подход - отправить соответствующую команду
             if callback_data.startswith('quick_'):
@@ -137,7 +137,7 @@ class BrowserUserSimulator:
     def print_summary(self):
         """Итоговый отчёт"""
         print(f"\n{'='*70}")
-        print(f"📊 ИТОГОВЫЙ ОТЧЁТ БРАУЗЕРНОЙ СИМУЛЯЦИИ")
+        print("📊 ИТОГОВЫЙ ОТЧЁТ БРАУЗЕРНОЙ СИМУЛЯЦИИ")
         print(f"{'='*70}")
 
         passed = sum(1 for _, result, _ in self.test_results if result)
@@ -157,19 +157,19 @@ class BrowserUserSimulator:
         print("=" * 70)
 
         if total - passed > 0:
-            print(f"\n⚠️ ТРЕБУЕТСЯ ВНИМАНИЕ:")
+            print("\n⚠️ ТРЕБУЕТСЯ ВНИМАНИЕ:")
             for test_name, result, details in self.test_results:
                 if not result:
                     print(f"  • {test_name}: {details}")
         else:
-            print(f"\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
+            print("\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
 
     async def run_full_user_journey(self):
         """Полный пользовательский сценарий"""
-        print(f"\n🚀 ЗАПУСК ПОЛНОЙ СИМУЛЯЦИИ ДЕЙСТВИЙ ПОЛЬЗОВАТЕЛЯ В БРАУЗЕРЕ")
+        print("\n🚀 ЗАПУСК ПОЛНОЙ СИМУЛЯЦИИ ДЕЙСТВИЙ ПОЛЬЗОВАТЕЛЯ В БРАУЗЕРЕ")
         print(f"{'='*70}")
         print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-        print(f"Метод: Bot API симуляция браузерных действий")
+        print("Метод: Bot API симуляция браузерных действий")
         print(f"{'='*70}\n")
 
         # Сценарий 1: Новый пользователь открывает бота
@@ -177,7 +177,7 @@ class BrowserUserSimulator:
         await asyncio.sleep(3)
 
         # Сценарий 2: Нажатие inline кнопок
-        print(f"\n📱 ТЕСТИРОВАНИЕ INLINE КНОПОК")
+        print("\n📱 ТЕСТИРОВАНИЕ INLINE КНОПОК")
         await self.simulate_button_click('📊 Статистика', 'quick_stats')
         await asyncio.sleep(3)
 
@@ -212,10 +212,10 @@ async def main():
     # Чтобы узнать свой ID, напиши боту @userinfobot
     TEST_CHAT_ID = int(input("Введи свой Telegram ID (напиши боту @userinfobot чтобы узнать): "))
 
-    print(f"\n⚠️ ВНИМАНИЕ:")
-    print(f"Этот скрипт будет отправлять сообщения боту от твоего имени")
-    print(f"Убедись что бот запущен на Railway")
-    print(f"Ты увидишь сообщения в своём Telegram чате с ботом\n")
+    print("\n⚠️ ВНИМАНИЕ:")
+    print("Этот скрипт будет отправлять сообщения боту от твоего имени")
+    print("Убедись что бот запущен на Railway")
+    print("Ты увидишь сообщения в своём Telegram чате с ботом\n")
 
     input("Нажми Enter для продолжения...")
 

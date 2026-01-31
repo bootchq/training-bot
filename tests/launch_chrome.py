@@ -2,8 +2,8 @@
 """
 Запускает Chrome с remote debugging и скопированной сессией Telegram
 """
-import subprocess
 import os
+import subprocess
 import time
 
 CHROME_PATH = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
@@ -27,9 +27,10 @@ time.sleep(10)
 
 # Проверяем порт
 import requests
+
 try:
     r = requests.get("http://127.0.0.1:9222/json/version", timeout=2)
-    print(f"✅ Remote debugging работает!")
+    print("✅ Remote debugging работает!")
     print(f"Chrome: {r.json().get('Browser', 'Unknown')}")
 except Exception as e:
     print(f"⚠️  Порт не отвечает: {e}")

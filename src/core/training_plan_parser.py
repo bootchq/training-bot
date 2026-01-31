@@ -1,8 +1,11 @@
 """Парсер плана тренировок из markdown"""
 import re
-from datetime import datetime, date
-from typing import List, Dict, Any, Optional
+from datetime import date
 from pathlib import Path
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
 
 from ..utils.logger import logger
 
@@ -66,7 +69,7 @@ class TrainingPlanParser:
             return []
 
         try:
-            with open(self.file_path, 'r', encoding='utf-8') as f:
+            with open(self.file_path, encoding='utf-8') as f:
                 content = f.read()
 
             # Разделить на секции недель

@@ -3,12 +3,13 @@
 Не требует api_id/api_hash — только токен бота.
 """
 
-import os
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any
+from typing import Dict
+from typing import List
+from typing import Optional
 
 import requests
-from dotenv import load_dotenv
 
 
 class BotApiClient:

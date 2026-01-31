@@ -1,6 +1,6 @@
 """Загрузка плана тренировок в БД"""
-import sys
 import os
+import sys
 from pathlib import Path
 
 # Устанавливаем минимальные переменные окружения для запуска

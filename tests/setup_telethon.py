@@ -9,7 +9,6 @@
     python3 setup_telethon.py
 """
 
-import os
 from pathlib import Path
 
 CONFIG_FILE = Path.home() / '.telegram_api_config'

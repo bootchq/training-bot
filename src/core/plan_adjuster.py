@@ -1,6 +1,9 @@
 """Корректировка плана тренировок при пропусках"""
-from datetime import date, timedelta
-from typing import List, Dict, Any
+from datetime import date
+from datetime import timedelta
+from typing import Any
+from typing import Dict
+
 from ..database.db import db
 from ..utils.logger import logger
 
@@ -27,7 +30,8 @@ class PlanAdjuster:
         Returns:
             Словарь с информацией о пропусках
         """
-        from ..database.db import Training, TrainingPlan
+        from ..database.db import Training
+        from ..database.db import TrainingPlan
 
         start_date = date.today() - timedelta(weeks=weeks_back)
         end_date = date.today()

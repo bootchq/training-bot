@@ -1,8 +1,9 @@
 """Тест отображения плана тренировок"""
-import sys
 import os
+import sys
+from datetime import date
+from datetime import timedelta
 from pathlib import Path
-from datetime import date, timedelta
 
 # Устанавливаем минимальные переменные окружения
 os.environ.setdefault('TELEGRAM_BOT_TOKEN', 'dummy')

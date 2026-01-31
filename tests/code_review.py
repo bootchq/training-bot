@@ -3,7 +3,6 @@
 Проверяет синтаксис, импорты, потенциальные ошибки
 """
 import py_compile
-import os
 import sys
 from pathlib import Path
 
@@ -37,7 +36,7 @@ class CodeReviewer:
             return False
 
         # Читаем файл
-        with open(filepath, 'r', encoding='utf-8') as f:
+        with open(filepath, encoding='utf-8') as f:
             content = f.read()
 
         # Проверки

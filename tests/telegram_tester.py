@@ -7,8 +7,10 @@
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Optional, List, Callable
 from pathlib import Path
+from typing import Callable
+from typing import List
+from typing import Optional
 
 try:
     import pyautogui

@@ -1,5 +1,6 @@
 """Инициализация базы данных"""
-from .db import db, logger
+from .db import db
+from .db import logger
 
 
 def init_database():

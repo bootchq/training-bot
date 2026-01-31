@@ -1,6 +1,5 @@
 """E2E тест команды /reset"""
 import pytest
-from telethon import functions
 
 
 @pytest.mark.asyncio

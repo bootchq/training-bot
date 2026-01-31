@@ -4,13 +4,14 @@
 Safari встроен в macOS и не требует установки
 """
 
-import time
 import os
+import time
 from datetime import datetime
+
 from selenium import webdriver
-from selenium.webdriver.safari.options import Options as SafariOptions
 from selenium.webdriver.common.by import By
 from selenium.webdriver.common.keys import Keys
+from selenium.webdriver.safari.options import Options as SafariOptions
 
 BOT_USERNAME = "training_dag_run_bot"
 SCREENSHOTS_DIR = "/Users/noor/Documents/Obsidian Vault/Бот тренера/screenshots"
@@ -20,7 +21,7 @@ def main():
     print("🌐 БРАУЗЕРНОЕ ТЕСТИРОВАНИЕ ЧЕРЕЗ SAFARI")
     print("="*70)
     print(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-    print(f"Браузер: Safari (встроенный)")
+    print("Браузер: Safari (встроенный)")
     print(f"Бот: @{BOT_USERNAME}")
     print("="*70 + "\n")
 
@@ -49,7 +50,7 @@ def main():
         time.sleep(5)
 
         driver.save_screenshot(f'{SCREENSHOTS_DIR}/safari_01_telegram.png')
-        print(f"✅ Telegram Web открыт")
+        print("✅ Telegram Web открыт")
         print(f"   URL: {driver.current_url}")
         print(f"   Скриншот: {SCREENSHOTS_DIR}/safari_01_telegram.png")
 
@@ -155,7 +156,7 @@ def main():
             time.sleep(3)
 
             driver.save_screenshot(f'{SCREENSHOTS_DIR}/safari_04_start.png')
-            print(f"✅ Команда /start отправлена")
+            print("✅ Команда /start отправлена")
             print(f"   Скриншот: {SCREENSHOTS_DIR}/safari_04_start.png")
 
             # Проверяем кнопки
@@ -170,7 +171,7 @@ def main():
             time.sleep(3)
 
             driver.save_screenshot(f'{SCREENSHOTS_DIR}/safari_05_help.png')
-            print(f"✅ Команда /help отправлена")
+            print("✅ Команда /help отправлена")
             print(f"   Скриншот: {SCREENSHOTS_DIR}/safari_05_help.png")
 
             print("\n💡 Продолжи ручное тестирование:")

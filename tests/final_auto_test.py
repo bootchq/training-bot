@@ -4,9 +4,10 @@
 Использует ТВОЮ существующую сессию Chrome - авторизация НЕ НУЖНА!
 """
 
+import os
 import subprocess
 import time
-import os
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -122,7 +123,7 @@ if buttons:
             print(f"\n{idx}. {btn_text}", flush=True)
 
             btn.click()
-            print(f"   ✅ КЛИКНУЛ!", flush=True)
+            print("   ✅ КЛИКНУЛ!", flush=True)
             time.sleep(2)
 
             driver.save_screenshot(f"{SCREENSHOTS_DIR}/final_03_btn{idx}.png")
@@ -130,7 +131,7 @@ if buttons:
             # Проверяем файл
             page = driver.page_source
             if '.ics' in page and 'календарь' in btn_text.lower():
-                print(f"   🎉 КАЛЕНДАРЬ ОТПРАВИЛ ICS ФАЙЛ!", flush=True)
+                print("   🎉 КАЛЕНДАРЬ ОТПРАВИЛ ICS ФАЙЛ!", flush=True)
 
         except Exception as e:
             print(f"   ⚠️  {e}", flush=True)

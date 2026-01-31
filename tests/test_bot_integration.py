@@ -5,7 +5,6 @@ Smoke тесты структуры проекта.
     pytest tests/test_bot_integration.py -v
 """
 
-import pytest
 from pathlib import Path
 
 

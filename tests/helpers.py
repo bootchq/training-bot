@@ -4,8 +4,14 @@ Helpers для тестирования бота.
 """
 
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock
-from telegram import Update, User, Chat, Message, CallbackQuery
+from unittest.mock import AsyncMock
+from unittest.mock import MagicMock
+
+from telegram import CallbackQuery
+from telegram import Chat
+from telegram import Message
+from telegram import Update
+from telegram import User
 from telegram.ext import ContextTypes
 
 

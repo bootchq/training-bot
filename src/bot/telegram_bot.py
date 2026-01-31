@@ -1,25 +1,32 @@
 """Telegram бот"""
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import (
-    Application, CommandHandler, CallbackQueryHandler,
-    ContextTypes, ConversationHandler, MessageHandler, filters
-)
+from telegram import InlineKeyboardButton
+from telegram import InlineKeyboardMarkup
+from telegram import Update
+from telegram.ext import Application
+from telegram.ext import CallbackQueryHandler
+from telegram.ext import CommandHandler
+from telegram.ext import ContextTypes
+from telegram.ext import ConversationHandler
+from telegram.ext import MessageHandler
+from telegram.ext import filters
 
-from ..utils.config import Config
-from ..utils.logger import logger
-from ..utils import time_utils
-from ..database.db import db
-from ..integrations.garmin_sync import garmin_sync
-from ..integrations.calendar_sync import calendar_sync
+from ..core.ai_training_analyzer import get_training_analyzer
+from ..core.hr_zones import format_hr_zones_summary
+from ..core.personal_records import create_records_manager
+from ..core.plan_adapter import PlanAdapter
+from ..core.reminders import get_reminder_scheduler
+from ..core.reminders import init_reminder_scheduler
 from ..core.scheduler import TrainingScheduler
 from ..core.stats_calculator import StatsCalculator
+from ..core.vdot_calculator import calculate_best_vdot
+from ..core.vdot_calculator import format_vdot_summary
 from ..core.wellness_survey import WellnessSurvey
-from ..core.plan_adapter import PlanAdapter
-from ..core.reminders import init_reminder_scheduler, get_reminder_scheduler
-from ..core.ai_training_analyzer import get_training_analyzer
-from ..core.personal_records import create_records_manager
-from ..core.vdot_calculator import calculate_best_vdot, format_vdot_summary
-from ..core.hr_zones import format_hr_zones_summary
+from ..database.db import db
+from ..integrations.calendar_sync import calendar_sync
+from ..integrations.garmin_sync import garmin_sync
+from ..utils import time_utils
+from ..utils.config import Config
+from ..utils.logger import logger
 
 # Состояния для ConversationHandler
 GARMIN_EMAIL, GARMIN_PASSWORD = range(2)
@@ -227,8 +234,7 @@ class TrainingBot:
 
     async def methodology_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /methodology - показать методологию расчёта темпов"""
-        from ..core.plan_generator import PlanGenerator
-        from ..core.vdot_calculator import get_training_paces, format_pace
+        from ..core.vdot_calculator import get_training_paces
 
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
@@ -279,7 +285,6 @@ class TrainingBot:
 
     async def sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /sync - ручная синхронизация с Garmin"""
-        from datetime import date, timedelta
 
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
@@ -330,7 +335,7 @@ class TrainingBot:
                 result_lines.append("ℹ️ Новых тренировок не найдено                                    ")
 
             if lthr:
-                result_lines.append(f"\n**Физиологические данные:**                                      ")
+                result_lines.append("\n**Физиологические данные:**                                      ")
                 result_lines.append(f"- LTHR: {lthr} уд/мин                                                ")
 
             # Проверяем рост VDOT
@@ -354,7 +359,7 @@ class TrainingBot:
                     pace_text += f"• Easy: {paces.get('E', 'N/A')}\n"
                     pace_text += f"• Threshold: {paces.get('T', 'N/A')}\n"
                     pace_text += f"• Interval: {paces.get('I', 'N/A')}\n"
-                    pace_text += f"\nНовые темпы применяются к будущим тренировкам"
+                    pace_text += "\nНовые темпы применяются к будущим тренировкам"
                     await update.message.reply_text(pace_text, parse_mode='Markdown')
 
             # Если VDOT новый (не было раньше), показываем саммари
@@ -467,7 +472,8 @@ class TrainingBot:
 
     async def handle_next_3_trainings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка кнопки 'Следующие 3 тренировки'"""
-        from datetime import date, timedelta
+        from datetime import date
+        from datetime import timedelta
 
         query = update.callback_query
         await query.answer()
@@ -567,7 +573,7 @@ class TrainingBot:
 
     async def plan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /plan - показ плана на неделю"""
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
@@ -673,7 +679,7 @@ class TrainingBot:
 
     async def calendar(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /calendar - экспорт плана в ICS файл для импорта в календарь"""
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
@@ -740,7 +746,7 @@ class TrainingBot:
 
     async def skip_training(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /skip - пропустить тренировку сегодня или указанную дату"""
-        from datetime import date, datetime
+        from datetime import datetime
 
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
@@ -803,7 +809,7 @@ class TrainingBot:
 
     async def handle_survey_callback(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка нажатия кнопок опроса самочувствия"""
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         query = update.callback_query
         await query.answer()
@@ -1190,7 +1196,6 @@ class TrainingBot:
         Returns:
             True если план создан успешно
         """
-        from datetime import date, timedelta
         from ..core.plan_generator import PlanGenerator
 
         try:
@@ -1506,7 +1511,7 @@ class TrainingBot:
                 removed_count = reminder_scheduler.remove_user_reminders(user.id)
                 logger.info(f"✅ Удалено {removed_count} напоминаний для user.id={user.id}")
             else:
-                logger.warning(f"⚠️ ReminderScheduler не инициализирован")
+                logger.warning("⚠️ ReminderScheduler не инициализирован")
 
             # Очищаем кешированную сессию Garmin (OAuth tokens)
             # logger.info(f"🔄 Очистка Garmin сессии")
@@ -1541,7 +1546,7 @@ class TrainingBot:
         Returns:
             Текст рекомендации или пустая строка
         """
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         today = time_utils.today()
 
@@ -1613,7 +1618,7 @@ class TrainingBot:
 
     async def _handle_plan(self, telegram_id: int, message):
         """Внутренняя логика плана"""
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         user = db.get_or_create_user(telegram_id)
         today = time_utils.today()
@@ -1670,7 +1675,7 @@ class TrainingBot:
 
     async def _handle_sync(self, telegram_id: int, message, context):
         """Внутренняя логика синхронизации"""
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         user = db.get_or_create_user(telegram_id)
         credentials = db.get_user_garmin_credentials(user.id)
@@ -1705,7 +1710,7 @@ class TrainingBot:
 
     async def _handle_calendar(self, telegram_id: int, message):
         """Внутренняя логика календаря"""
-        from datetime import date, timedelta
+        from datetime import timedelta
 
         user = db.get_or_create_user(telegram_id)
         today = time_utils.today()
@@ -1880,7 +1885,7 @@ class TrainingBot:
         # === ОНБОРДИНГ: ввод даты забега ===
         if context.user_data.get('awaiting_goal_date'):
             logger.info(f"Обработка даты забега от user={telegram_id}: '{message_text}'")
-            from datetime import datetime, date
+            from datetime import datetime
 
             try:
                 # Парсим дату в формате ДД.ММ.ГГГГ
@@ -2211,8 +2216,6 @@ class TrainingBot:
 
     async def receive_plan_time(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Получение времени на тренировку и генерация плана"""
-        from datetime import date
-        from ..core.plan_generator import PlanGenerator
 
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
@@ -2281,7 +2284,8 @@ class TrainingBot:
         # Сохраняем время и спрашиваем про уровень подготовки
         context.user_data['time_per_session'] = time_min
 
-        from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+        from telegram import InlineKeyboardButton
+        from telegram import InlineKeyboardMarkup
 
         keyboard = [
             [InlineKeyboardButton("🟢 Новичок (бегаю < 6 месяцев)", callback_data="level_beginner")],
@@ -2418,7 +2422,6 @@ class TrainingBot:
 
     async def handle_level_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка выбора уровня подготовки и генерация плана"""
-        from datetime import date
         from ..core.plan_generator import PlanGenerator
 
         query = update.callback_query

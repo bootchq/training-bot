@@ -9,9 +9,10 @@
 ✅ Делает скриншоты
 """
 
-import subprocess
 import os
+import subprocess
 import time
+
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
@@ -182,7 +183,7 @@ if buttons and len(buttons) > 0:
             }}
         """)
 
-        print(f"   ✅ КЛИКНУЛ")
+        print("   ✅ КЛИКНУЛ")
         time.sleep(3)
 
         driver.save_screenshot(f"{SCREENSHOTS_DIR}/auto_04_btn{idx+1}.png")
@@ -190,7 +191,7 @@ if buttons and len(buttons) > 0:
         # Проверяем результат
         page = driver.page_source
         if '.ics' in page:
-            print(f"   🎉 ICS ФАЙЛ ОБНАРУЖЕН!")
+            print("   🎉 ICS ФАЙЛ ОБНАРУЖЕН!")
 
     print()
     print("="*70)
@@ -200,8 +201,8 @@ if buttons and len(buttons) > 0:
     print(f"📸 Скриншоты: {SCREENSHOTS_DIR}")
     print()
     print("💡 Результаты:")
-    print(f"   - Бот открыт: ✅")
-    print(f"   - /start отправлен: ✅")
+    print("   - Бот открыт: ✅")
+    print("   - /start отправлен: ✅")
     print(f"   - Протестировано кнопок: {len(buttons)}")
     print()
     print("✅ Сессия сохранена - в следующий раз БЕЗ авторизации!")

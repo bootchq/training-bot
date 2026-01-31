@@ -5,7 +5,6 @@ E2E тест онбординга через Playwright CDP
 """
 
 import asyncio
-import time
 import os
 import sys
 
@@ -42,8 +41,8 @@ class OnboardingTester:
         self.log("Подключаюсь к Chrome через CDP...")
 
         # Получаем WebSocket URL
-        import urllib.request
         import json
+        import urllib.request
 
         try:
             with urllib.request.urlopen(f"{CDP_URL}/json/version", timeout=5) as resp:

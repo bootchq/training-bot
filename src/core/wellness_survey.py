@@ -1,11 +1,15 @@
 """Модуль вечернего опроса самочувствия"""
-from datetime import date, timedelta
-from typing import Dict, Any, Optional
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+from datetime import date
+from typing import Any
+from typing import Dict
+from typing import Optional
 
-from ..database.db import db
-from ..core.plan_adapter import PlanAdapter
+from telegram import InlineKeyboardButton
+from telegram import InlineKeyboardMarkup
+
 from ..ai.consultant import consultant
+from ..core.plan_adapter import PlanAdapter
+from ..database.db import db
 from ..utils.logger import logger
 
 
@@ -155,7 +159,7 @@ class WellnessSurvey:
             text += "📊 Твои ответы сохранены."
 
             if changes:
-                text += f"\n\n📋 План адаптирован:\n"
+                text += "\n\n📋 План адаптирован:\n"
                 for change in changes:
                     text += f"• {change}\n"
 

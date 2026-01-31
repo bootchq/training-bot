@@ -5,8 +5,9 @@
 """
 
 import os
-import requests
 from datetime import datetime
+
+import requests
 
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', '')
 BASE_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
@@ -26,7 +27,7 @@ print()
 if not BOT_TOKEN:
     # Попробуем прочитать из .env
     try:
-        with open('.env', 'r') as f:
+        with open('.env') as f:
             for line in f:
                 if 'TELEGRAM_BOT_TOKEN' in line:
                     BOT_TOKEN = line.split('=')[1].strip().strip('"').strip("'")
@@ -81,11 +82,11 @@ if result.get('ok'):
         if cmd_name == 'calendar':
             # КРИТИЧЕСКАЯ ПРОВЕРКА
             if 'Google Calendar' in cmd_desc or 'Синхронизация' in cmd_desc:
-                print(f"      ❌ FAIL: Описание команды устарело!")
-                print(f"      Должно быть: 'Скачать план для календаря'")
+                print("      ❌ FAIL: Описание команды устарело!")
+                print("      Должно быть: 'Скачать план для календаря'")
                 all_ok = False
             else:
-                print(f"      ✅ Описание обновлено правильно")
+                print("      ✅ Описание обновлено правильно")
 
     if all_ok:
         print("✅ Все команды зарегистрированы корректно")
@@ -104,7 +105,7 @@ if result.get('ok'):
         print(f"✅ Бот на webhook: {webhook['url']}")
         print(f"   Pending updates: {webhook.get('pending_update_count', 0)}")
     else:
-        print(f"✅ Бот в polling mode")
+        print("✅ Бот в polling mode")
 else:
     print("⚠️  Не удалось получить информацию о webhook")
 

@@ -8,10 +8,9 @@ Best practices 2026: API-level testing вместо browser automation
 """
 import asyncio
 import os
-from datetime import datetime
-from telegram import Bot, Update
-from telegram.ext import Application
 import sys
+
+from telegram import Bot
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
@@ -137,7 +136,7 @@ class BotE2ETester:
                 ("Бот активен", bot_info.can_join_groups or True),
             ]
 
-            print(f"\n📊 Информация о боте:")
+            print("\n📊 Информация о боте:")
             print(f"  Имя: {bot_info.first_name}")
             print(f"  Username: @{bot_info.username}")
             print(f"  ID: {bot_info.id}")
@@ -195,7 +194,7 @@ class BotE2ETester:
                 self.test_results.append((test_name, False, f"Отсутствуют: {missing_commands}"))
                 return False
             else:
-                print(f"\n✅ Тест пройден: все команды зарегистрированы")
+                print("\n✅ Тест пройден: все команды зарегистрированы")
                 self.test_results.append((test_name, True, f"{len(commands)} команд"))
                 return True
 
@@ -218,12 +217,12 @@ class BotE2ETester:
             webhook_info = await self.bot.get_webhook_info()
 
             if webhook_info.url:
-                print(f"\n📡 Режим: WEBHOOK")
+                print("\n📡 Режим: WEBHOOK")
                 print(f"  URL: {webhook_info.url}")
                 print(f"  Pending updates: {webhook_info.pending_update_count}")
                 mode = "webhook"
             else:
-                print(f"\n📡 Режим: POLLING")
+                print("\n📡 Режим: POLLING")
                 mode = "polling"
 
             print(f"\n✅ Тест пройден: бот работает в режиме {mode.upper()}")

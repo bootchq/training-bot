@@ -4,9 +4,10 @@
 Запускает Chrome, подключается, АВТОМАТИЧЕСКИ кликает по кнопкам
 """
 
+import os
 import subprocess
 import time
-import os
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
@@ -31,7 +32,7 @@ os.makedirs(USER_DATA_DIR, exist_ok=True)
 print("🚀 Запускаю Chrome...", flush=True)
 chrome_process = subprocess.Popen([
     CHROME_PATH,
-    f"--remote-debugging-port=9222",
+    "--remote-debugging-port=9222",
     f"--user-data-dir={USER_DATA_DIR}",
     "--no-first-run",
     TELEGRAM_WEB
@@ -164,7 +165,7 @@ try:
                 print(f"\n{idx}. {btn_text}", flush=True)
 
                 btn.click()
-                print(f"   ✅ КЛИКНУЛ", flush=True)
+                print("   ✅ КЛИКНУЛ", flush=True)
 
                 time.sleep(2)
                 driver.save_screenshot(f"{SCREENSHOTS_DIR}/auto_04_button_{idx}.png")
@@ -190,7 +191,7 @@ try:
             time.sleep(0.3)
             message_input.send_keys(Keys.ENTER)
             time.sleep(3)
-            print(f"   ✅ Отправлен", flush=True)
+            print("   ✅ Отправлен", flush=True)
 
     print(flush=True)
 

@@ -1,9 +1,15 @@
 """Умные напоминания о тренировках"""
-from datetime import datetime, timedelta, time as dt_time
-from typing import Optional, Callable
+from datetime import datetime
+from datetime import time as dt_time
+from datetime import timedelta
+from typing import Callable
+from typing import Optional
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-from ..database.db import db, Training
+
+from ..database.db import Training
+from ..database.db import db
 from ..utils.logger import logger
 
 

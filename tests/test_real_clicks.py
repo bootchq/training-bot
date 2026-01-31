@@ -3,10 +3,10 @@
 Полное тестирование inline кнопок с глубокой JavaScript симуляцией
 """
 import time
+
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.keys import Keys
 
 BOT_USERNAME = "training_dag_run_bot"
 

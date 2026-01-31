@@ -1,17 +1,18 @@
 """Планировщик задач"""
-from datetime import timedelta, time as dt_time
+from datetime import time as dt_time
+from datetime import timedelta
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Bot
 
-from ..database.db import db
-from ..integrations.garmin_sync import garmin_sync
-from ..integrations.calendar_sync import calendar_sync
 from ..core.plan_adapter import PlanAdapter
 from ..core.wellness_survey import WellnessSurvey
-from ..utils.config import Config
-from ..utils.logger import logger
+from ..database.db import db
+from ..integrations.calendar_sync import calendar_sync
+from ..integrations.garmin_sync import garmin_sync
 from ..utils import time_utils
+from ..utils.logger import logger
 
 
 class TrainingScheduler:
@@ -150,7 +151,7 @@ class TrainingScheduler:
 
             # Логируем изменения
             if changes:
-                logger.info(f"Внесены изменения в план:")
+                logger.info("Внесены изменения в план:")
                 for change in changes:
                     logger.info(f"  - {change}")
 
@@ -604,7 +605,7 @@ class TrainingScheduler:
                 return
 
             # Форматируем сообщение
-            text = f"⏰ **Через 2 часа тренировка!**\n\n"
+            text = "⏰ **Через 2 часа тренировка!**\n\n"
             text += f"**{workout_plan.type.upper()}** в {workout_time}\n"
 
             if workout_plan.duration_min:

@@ -5,9 +5,10 @@
 
 import os
 import sys
-import requests
 import time
 from datetime import datetime
+
+import requests
 
 # Отключаем буферизацию
 sys.stdout = os.fdopen(sys.stdout.fileno(), 'w', buffering=1)
@@ -100,7 +101,7 @@ time.sleep(2)
 
 if response.get('ok'):
     msg = response['result']
-    print(f"✅ Команда отправлена", flush=True)
+    print("✅ Команда отправлена", flush=True)
     print(f"   Message ID: {msg['message_id']}", flush=True)
 
     # Проверяем есть ли inline кнопки в ответе
@@ -125,7 +126,7 @@ response = send_message(CHAT_ID, '/help')
 time.sleep(2)
 
 if response.get('ok'):
-    print(f"✅ Команда отправлена", flush=True)
+    print("✅ Команда отправлена", flush=True)
 else:
     print(f"❌ Ошибка: {response}", flush=True)
 
@@ -139,8 +140,8 @@ response = send_message(CHAT_ID, '/stats')
 time.sleep(2)
 
 if response.get('ok'):
-    print(f"✅ Команда отправлена", flush=True)
-    print(f"   (Если не зарегистрирован Garmin - покажет ошибку)", flush=True)
+    print("✅ Команда отправлена", flush=True)
+    print("   (Если не зарегистрирован Garmin - покажет ошибку)", flush=True)
 else:
     print(f"❌ Ошибка: {response}", flush=True)
 
@@ -154,8 +155,8 @@ response = send_message(CHAT_ID, '/calendar')
 time.sleep(3)
 
 if response.get('ok'):
-    print(f"✅ Команда отправлена", flush=True)
-    print(f"   Должен отправить ICS файл (НЕ ошибку OAuth)", flush=True)
+    print("✅ Команда отправлена", flush=True)
+    print("   Должен отправить ICS файл (НЕ ошибку OAuth)", flush=True)
 else:
     print(f"❌ Ошибка: {response}", flush=True)
 
@@ -169,7 +170,7 @@ response = send_message(CHAT_ID, '/plan')
 time.sleep(2)
 
 if response.get('ok'):
-    print(f"✅ Команда отправлена", flush=True)
+    print("✅ Команда отправлена", flush=True)
 else:
     print(f"❌ Ошибка: {response}", flush=True)
 
