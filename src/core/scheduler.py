@@ -1,5 +1,5 @@
 """Планировщик задач"""
-from datetime import date, timedelta
+from datetime import timedelta
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Bot
@@ -11,6 +11,7 @@ from ..core.plan_adapter import PlanAdapter
 from ..core.wellness_survey import WellnessSurvey
 from ..utils.config import Config
 from ..utils.logger import logger
+from ..utils import time_utils
 
 
 class TrainingScheduler:
@@ -90,7 +91,7 @@ class TrainingScheduler:
             logger.info("🔄 Начало ежедневного анализа")
             logger.info("=" * 50)
 
-            yesterday = date.today() - timedelta(days=1)
+            yesterday = time_utils.today() - timedelta(days=1)
 
             # 1. Синхронизация с Garmin за вчера
             logger.info(f"Синхронизация Garmin за {yesterday}...")
@@ -175,7 +176,7 @@ class TrainingScheduler:
                 return
 
             # Получаем план на текущую неделю
-            today = date.today()
+            today = time_utils.today()
             start_of_week = today - timedelta(days=today.weekday())
 
             plans = db.get_plan_for_week(self.user_id, start_of_week)
@@ -248,7 +249,7 @@ class TrainingScheduler:
             if not self.telegram_bot:
                 return
 
-            today = date.today()
+            today = time_utils.today()
 
             # Получаем план на сегодня
             plans = db.get_plan_for_week(self.user_id, today)
@@ -328,7 +329,7 @@ class TrainingScheduler:
                 return
 
             # Получаем план на эту неделю для сравнения
-            today = date.today()
+            today = time_utils.today()
             start_of_week = today - timedelta(days=today.weekday())
             planned = db.get_plan_for_week(self.user_id, start_of_week)
 

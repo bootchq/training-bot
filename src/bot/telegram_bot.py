@@ -7,6 +7,7 @@ from telegram.ext import (
 
 from ..utils.config import Config
 from ..utils.logger import logger
+from ..utils import time_utils
 from ..database.db import db
 from ..integrations.garmin_sync import garmin_sync
 from ..integrations.calendar_sync import calendar_sync
@@ -572,7 +573,7 @@ class TrainingBot:
         user = db.get_or_create_user(telegram_id)
 
         # Определяем начало текущей недели (понедельник)
-        today = date.today()
+        today = time_utils.today()
         start_of_week = today - timedelta(days=today.weekday())
 
         # Получаем план на неделю
@@ -678,7 +679,7 @@ class TrainingBot:
         user = db.get_or_create_user(telegram_id)
 
         # Определяем начало текущей недели
-        today = date.today()
+        today = time_utils.today()
         start_of_week = today - timedelta(days=today.weekday())
 
         # Проверяем что план существует
@@ -753,7 +754,7 @@ class TrainingBot:
                 date_str = args[0]
                 if len(date_str.split('.')) == 2:
                     # Формат ДД.ММ - добавляем текущий год
-                    skip_date = datetime.strptime(f"{date_str}.{date.today().year}", "%d.%m.%Y").date()
+                    skip_date = datetime.strptime(f"{date_str}.{time_utils.today().year}", "%d.%m.%Y").date()
                 else:
                     # Формат ДД.ММ.ГГГГ
                     skip_date = datetime.strptime(date_str, "%d.%m.%Y").date()
@@ -766,7 +767,7 @@ class TrainingBot:
                 return
         else:
             # Без аргументов - пропускаем сегодня
-            skip_date = date.today()
+            skip_date = time_utils.today()
 
         # Проверяем есть ли план на эту дату
         plan = db.get_plan_for_date(user.id, skip_date)
@@ -824,7 +825,7 @@ class TrainingBot:
 
                 # Отправляем AI совет после завершения опроса
                 try:
-                    yesterday = date.today() - timedelta(days=1)
+                    yesterday = time_utils.today() - timedelta(days=1)
                     ai_advice = WellnessSurvey.get_ai_advice_for_survey(user.id, yesterday)
 
                     if ai_advice:
@@ -1229,7 +1230,7 @@ class TrainingBot:
                 time_per_session = 60
 
             # Рассчитываем количество недель до забега
-            today = date.today()
+            today = time_utils.today()
             if goal_date <= today:
                 logger.warning(f"Дата забега {goal_date} уже прошла")
                 return False
@@ -1542,7 +1543,7 @@ class TrainingBot:
         """
         from datetime import date, timedelta
 
-        today = date.today()
+        today = time_utils.today()
 
         # Получаем план на сегодня
         today_plan = db.get_plan_for_date(user_id, today)
@@ -1615,7 +1616,7 @@ class TrainingBot:
         from datetime import date, timedelta
 
         user = db.get_or_create_user(telegram_id)
-        today = date.today()
+        today = time_utils.today()
         start_of_week = today - timedelta(days=today.weekday())
         plans = db.get_plan_for_week(user.id, start_of_week)
 
@@ -1685,7 +1686,7 @@ class TrainingBot:
 
         try:
             total_count = 0
-            today = date.today()
+            today = time_utils.today()
             for i in range(60):
                 sync_date = today - timedelta(days=i)
                 count = garmin_sync.sync_date_for_user(user.id, sync_date)
@@ -1707,7 +1708,7 @@ class TrainingBot:
         from datetime import date, timedelta
 
         user = db.get_or_create_user(telegram_id)
-        today = date.today()
+        today = time_utils.today()
         start_of_week = today - timedelta(days=today.weekday())
         plans = db.get_plan_for_week(user.id, start_of_week)
 
@@ -1886,7 +1887,7 @@ class TrainingBot:
                 goal_date = datetime.strptime(message_text, "%d.%m.%Y").date()
 
                 # Проверяем что дата в будущем
-                if goal_date <= date.today():
+                if goal_date <= time_utils.today():
                     await update.message.reply_text(
                         "❌ Дата должна быть в будущем!\n\n"
                         "Введи дату забега в формате ДД.ММ.ГГГГ\n"
