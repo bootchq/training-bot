@@ -1,0 +1,45 @@
+[project]
+name = "bot-trainer"
+version = "1.0.0"
+description = "Telegram бот тренера по бегу"
+requires-python = ">=3.9"
+
+[tool.ruff]
+# Базовые настройки
+line-length = 100
+target-version = "py39"
+
+# Исключаем виртуальное окружение и кеши
+exclude = [
+    "venv",
+    ".venv",
+    "__pycache__",
+    ".git",
+    ".pytest_cache",
+]
+
+[tool.ruff.lint]
+# Правила проверки
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "W",      # pycodestyle warnings
+    "I",      # isort (порядок импортов)
+    "B",      # flake8-bugbear (частые баги)
+    "UP",     # pyupgrade (современный Python)
+]
+
+ignore = [
+    "E501",   # длина строки (контролируем через line-length)
+    "B008",   # function call in default argument (часто нужно в FastAPI/Telegram)
+]
+
+[tool.ruff.lint.isort]
+# Импорты в одну строку, группировка по типу
+force-single-line = true
+known-first-party = ["src"]
+
+[tool.ruff.format]
+# Форматирование (опционально, если захочешь автоформат)
+quote-style = "double"
+indent-style = "space"

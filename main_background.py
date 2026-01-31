@@ -27,6 +27,7 @@ from src.database.db import db
 from src.integrations.garmin_sync import garmin_sync
 from src.integrations.ai_agent import ai_consultant
 from src.utils.logger import logger
+from src.utils.health_check import health_server
 
 # Telegram API для отправки сообщений
 from telegram import Bot
@@ -332,6 +333,9 @@ async def run_background_jobs():
     """Запуск фоновых задач"""
     logger.info("🔧 Запуск Service 2: Фоновая логика и анализ")
 
+    # Запускаем health check сервер
+    await health_server.start()
+
     # Создаём scheduler
     scheduler = AsyncIOScheduler()
 
@@ -393,6 +397,10 @@ def main():
         logger.error("Не удалось инициализировать БД. Выход.")
         return
 
+    # Получаем порт из переменной окружения (Railway)
+    port = int(os.getenv('PORT', 8080))
+    health_server.port = port
+
     # Запуск фоновых задач
     try:
         asyncio.run(run_background_jobs())
@@ -401,6 +409,12 @@ def main():
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}", exc_info=True)
     finally:
+        # Останавливаем health check сервер
+        try:
+            asyncio.run(health_server.stop())
+        except Exception as e:
+            logger.error(f"Ошибка остановки health check: {e}")
+
         logger.info("=" * 50)
         logger.info("👋 Фоновые задачи остановлены")
         logger.info("=" * 50)
