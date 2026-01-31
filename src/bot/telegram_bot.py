@@ -1770,42 +1770,55 @@ class TrainingBot:
             # Парсим введённое время
             import re
             time_min = None
+            text_lower = message_text.lower().strip()
 
             try:
-                # Пробуем распарсить как простое число
+                # 1. Простое число: "90"
                 time_min = int(message_text)
             except ValueError:
-                # Пробуем распарсить "с X до Y" или "с X:MM до Y:MM"
-                # Паттерны: "с 19 до 21", "19-21", "с 19:10 до 20:40", "19:30-21:00"
-                pattern = r'(?:с\s*)?(\d{1,2})(?::(\d{2}))?(?:\s*до\s*|\s*-\s*)(\d{1,2})(?::(\d{2}))?'
-                match = re.search(pattern, message_text.lower())
+                # 2. С единицами: "90 минут", "90 мин", "1.5 часа", "2 ч"
+                patterns_units = [
+                    (r'(\d+(?:\.\d+)?)\s*(?:час|hour|h|ч)', lambda m: int(float(m.group(1)) * 60)),  # часы
+                    (r'(\d+)\s*(?:минут|мин|min|м)', lambda m: int(m.group(1))),  # минуты
+                ]
 
-                if match:
-                    start_hour = int(match.group(1))
-                    start_min = int(match.group(2)) if match.group(2) else 0
-                    end_hour = int(match.group(3))
-                    end_min = int(match.group(4)) if match.group(4) else 0
+                for pattern, converter in patterns_units:
+                    match = re.search(pattern, text_lower)
+                    if match:
+                        time_min = converter(match)
+                        break
 
-                    # Переводим в минуты от начала дня
-                    start_total = start_hour * 60 + start_min
-                    end_total = end_hour * 60 + end_min
+                # 3. Диапазон времени: "с 19 до 21", "19-21", "19:10-20:40"
+                if time_min is None:
+                    pattern = r'(?:с\s*)?(\d{1,2})(?::(\d{2}))?(?:\s*до\s*|\s*-\s*)(\d{1,2})(?::(\d{2}))?'
+                    match = re.search(pattern, text_lower)
 
-                    # Вычисляем разницу
-                    if end_total > start_total:
-                        time_min = end_total - start_total
-                    else:
-                        # Через полночь (например, с 22:00 до 02:00)
-                        time_min = (24 * 60 - start_total) + end_total
+                    if match:
+                        start_hour = int(match.group(1))
+                        start_min = int(match.group(2)) if match.group(2) else 0
+                        end_hour = int(match.group(3))
+                        end_min = int(match.group(4)) if match.group(4) else 0
 
-                    # Формируем красивый вывод
-                    hours = time_min // 60
-                    mins = time_min % 60
-                    if mins > 0:
-                        time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
-                    else:
-                        time_str = f"{hours} ч"
+                        # Переводим в минуты от начала дня
+                        start_total = start_hour * 60 + start_min
+                        end_total = end_hour * 60 + end_min
 
-                    await update.message.reply_text(f"✅ Понял: {time_str} = {time_min} мин")
+                        # Вычисляем разницу
+                        if end_total > start_total:
+                            time_min = end_total - start_total
+                        else:
+                            # Через полночь (например, с 22:00 до 02:00)
+                            time_min = (24 * 60 - start_total) + end_total
+
+                        # Формируем красивый вывод
+                        hours = time_min // 60
+                        mins = time_min % 60
+                        if mins > 0:
+                            time_str = f"{hours} ч {mins} мин" if hours > 0 else f"{mins} мин"
+                        else:
+                            time_str = f"{hours} ч"
+
+                        await update.message.reply_text(f"✅ Понял: {time_str} = {time_min} мин")
 
             if time_min is None or time_min < 30 or time_min > 300:
                 await update.message.reply_text(
@@ -1825,29 +1838,74 @@ class TrainingBot:
 
             logger.info(f"Время тренировки для user={user.id}: {time_min} мин")
 
-            # Спрашиваем время старта в будни
-            keyboard = [
-                [
-                    InlineKeyboardButton("06:00", callback_data="starttime_wd_06:00"),
-                    InlineKeyboardButton("07:00", callback_data="starttime_wd_07:00"),
-                    InlineKeyboardButton("08:00", callback_data="starttime_wd_08:00"),
-                ],
-                [
-                    InlineKeyboardButton("12:00", callback_data="starttime_wd_12:00"),
-                    InlineKeyboardButton("18:00", callback_data="starttime_wd_18:00"),
-                    InlineKeyboardButton("19:00", callback_data="starttime_wd_19:00"),
-                ],
-                [
-                    InlineKeyboardButton("20:00", callback_data="starttime_wd_20:00"),
-                    InlineKeyboardButton("21:00", callback_data="starttime_wd_21:00"),
-                ]
-            ]
+            # Спрашиваем время старта в будни (текстовый ввод)
+            context.user_data['awaiting_start_time_weekday'] = True
             await update.message.reply_text(
                 "🕐 Во сколько обычно бегаешь в **будни**?\n\n"
-                "Выбери примерное время старта:",
-                reply_markup=InlineKeyboardMarkup(keyboard),
+                "Напиши время старта (например: 19:00, 7:30, 6)",
                 parse_mode='Markdown'
             )
+            return
+
+        # === ОНБОРДИНГ: ввод времени старта (будни) ===
+        if context.user_data.get('awaiting_start_time_weekday'):
+            import re
+            # Парсим время: "19:00", "7:30", "6" → "19:00", "07:30", "06:00"
+            time_str = None
+            match = re.search(r'(\d{1,2})(?::(\d{2}))?', message_text.strip())
+            if match:
+                hour = int(match.group(1))
+                minute = int(match.group(2)) if match.group(2) else 0
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    time_str = f"{hour:02d}:{minute:02d}"
+
+            if not time_str:
+                await update.message.reply_text(
+                    "❌ Не могу распознать время\n\n"
+                    "Напиши в формате: 19:00 или 7:30 или просто 6"
+                )
+                return
+
+            # Сохраняем время для будней
+            db.save_user_goal(user.id, start_time_weekday=time_str)
+            context.user_data['start_time_weekday'] = time_str
+            context.user_data['awaiting_start_time_weekday'] = False
+
+            # Спрашиваем время для выходных
+            context.user_data['awaiting_start_time_weekend'] = True
+            await update.message.reply_text(
+                f"✅ Будни: {time_str}\n\n"
+                "🕐 А во сколько бегаешь в **выходные**?\n\n"
+                "Напиши время старта (например: 9:00, 10, 8:30)",
+                parse_mode='Markdown'
+            )
+            return
+
+        # === ОНБОРДИНГ: ввод времени старта (выходные) ===
+        if context.user_data.get('awaiting_start_time_weekend'):
+            import re
+            time_str = None
+            match = re.search(r'(\d{1,2})(?::(\d{2}))?', message_text.strip())
+            if match:
+                hour = int(match.group(1))
+                minute = int(match.group(2)) if match.group(2) else 0
+                if 0 <= hour <= 23 and 0 <= minute <= 59:
+                    time_str = f"{hour:02d}:{minute:02d}"
+
+            if not time_str:
+                await update.message.reply_text(
+                    "❌ Не могу распознать время\n\n"
+                    "Напиши в формате: 9:00 или 10 или 8:30"
+                )
+                return
+
+            # Сохраняем время для выходных
+            db.save_user_goal(user.id, start_time_weekend=time_str)
+            context.user_data['start_time_weekend'] = time_str
+            context.user_data['awaiting_start_time_weekend'] = False
+
+            # Завершаем онбординг
+            await self._finish_onboarding(update, context)
             return
 
         logger.info(f"💬 AI-чат от user={telegram_id}: {message_text[:50]}...")
