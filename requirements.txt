@@ -18,6 +18,7 @@ APScheduler==3.10.4
 
 # Database
 sqlalchemy==2.0.25
+psycopg2-binary==2.9.9  # PostgreSQL adapter
 
 # Data validation
 pydantic==2.5.3

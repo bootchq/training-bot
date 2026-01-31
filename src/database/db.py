@@ -143,19 +143,32 @@ class PersonalRecord(Base):
 class Database:
     """Менеджер базы данных"""
 
-    def __init__(self, db_path: str = None):
+    def __init__(self, db_path: str = None, db_url: str = None):
         """
         Инициализация БД
 
         Args:
-            db_path: Путь к файлу БД (по умолчанию из Config)
+            db_path: Путь к файлу SQLite БД (по умолчанию из Config.DATABASE_PATH)
+            db_url: URL PostgreSQL БД (приоритет над db_path, по умолчанию из Config.DATABASE_URL)
         """
-        if db_path is None:
-            db_path = Config.DATABASE_PATH
+        # Приоритет: db_url > Config.DATABASE_URL > db_path > Config.DATABASE_PATH
+        if db_url:
+            database_url = db_url
+            self.is_postgres = True
+        elif Config.DATABASE_URL:
+            database_url = Config.DATABASE_URL
+            self.is_postgres = True
+        else:
+            if db_path is None:
+                db_path = Config.DATABASE_PATH
+            database_url = f"sqlite:///{db_path}"
+            self.is_postgres = False
 
-        self.engine = create_engine(f"sqlite:///{db_path}", echo=False)
+        self.engine = create_engine(database_url, echo=False)
         self.SessionLocal = sessionmaker(bind=self.engine)
-        logger.info(f"База данных подключена: {db_path}")
+
+        db_type = "PostgreSQL" if self.is_postgres else "SQLite"
+        logger.info(f"База данных подключена: {db_type}")
 
     def create_tables(self):
         """Создание всех таблиц"""
@@ -169,6 +182,11 @@ class Database:
 
     def _migrate_existing_tables(self):
         """Миграция существующих таблиц (добавление новых полей)"""
+        # Для PostgreSQL миграции не нужны (схема создаётся SQLAlchemy)
+        if self.is_postgres:
+            logger.info("PostgreSQL: миграции не требуются")
+            return
+
         import sqlite3
 
         try:

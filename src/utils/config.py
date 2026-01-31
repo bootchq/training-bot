@@ -43,10 +43,11 @@ class Config:
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
     # Database
+    DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL URL (приоритет)
     DATABASE_PATH = os.getenv(
         "DATABASE_PATH",
         str(DATA_DIR / "training_bot.db")
-    )
+    ) if not DATABASE_URL else None
 
     # Timezone
     TIMEZONE = os.getenv("TZ", "Europe/Moscow")
