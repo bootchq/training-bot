@@ -44,10 +44,11 @@ class Config:
 
     # Database
     DATABASE_URL = os.getenv("DATABASE_URL")  # PostgreSQL URL (приоритет)
-    DATABASE_PATH = os.getenv(
-        "DATABASE_PATH",
-        str(DATA_DIR / "training_bot.db")
-    ) if not DATABASE_URL else None
+    DATABASE_PATH = os.getenv("DATABASE_PATH") if not DATABASE_URL else None
+
+    # Fallback для SQLite если нет ни DATABASE_URL ни DATABASE_PATH
+    if not DATABASE_URL and not DATABASE_PATH:
+        DATABASE_PATH = str(DATA_DIR / "training_bot.db")
 
     # Timezone
     TIMEZONE = os.getenv("TZ", "Europe/Moscow")
