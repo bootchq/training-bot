@@ -65,10 +65,18 @@ class GarminSync:
 
         try:
             date_str = target_date.isoformat()
-            activities = self.client.get_activities_by_date(date_str, date_str)
 
-            if not activities or not isinstance(activities, list):
+            # Получаем последние 100 активностей (покрывает ~3 месяца при тренировках каждый день)
+            all_activities = self.client.get_activities(0, 100)
+
+            if not all_activities or not isinstance(all_activities, list):
                 return []
+
+            # Фильтруем по дате (startTimeLocal формат: "2026-01-30T07:00:00.0")
+            activities = [
+                act for act in all_activities
+                if act.get('startTimeLocal', '').startswith(date_str)
+            ]
 
             # Фильтруем только беговые и кардио
             running_types = ['running', 'trail_running', 'treadmill_running']
