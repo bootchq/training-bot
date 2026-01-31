@@ -15,12 +15,25 @@ from typing import Any
 from typing import Dict
 from typing import List
 
+import random
+
 from ..database.db import db
 from ..utils.logger import logger
 from .hr_zones import format_hr_range_for_workout
 from .hr_zones import get_workout_hr_description
 from .vdot_calculator import get_training_paces
 from .vdot_calculator import get_training_paces_seconds
+from .workout_templates import (
+    INTERVAL_TEMPLATES,
+    HILL_TEMPLATES,
+    STRENGTH_TEMPLATES,
+    TrainingPeriod,
+    IntervalFocus,
+    get_suitable_intervals,
+    format_interval_description,
+    format_strength_description,
+    format_hill_description,
+)
 
 
 class PlanGenerator:
@@ -38,6 +51,8 @@ class PlanGenerator:
         self.vdot = self.user_settings.get('vdot') if self.user_settings else None
         self.lthr = self.user_settings.get('lthr') if self.user_settings else None
         self.paces = get_training_paces(self.vdot) if self.vdot else None
+        # История использованных шаблонов интервалов (для ротации)
+        self.recent_interval_templates: List[str] = []
 
     def generate_detailed_plan(self, goal_distance: int, goal_date: date, training_days: List[int],
                                time_per_session: int, weeks: int = 4, goal_type: str = 'race',
@@ -83,6 +98,9 @@ class PlanGenerator:
         # Корректируем время под уровень
         time_multiplier = self._get_level_multiplier(current_level)
         adjusted_time = int(time_per_session * time_multiplier)
+
+        # Валидация дней отдыха (минимум 2 дня, не более 3 подряд)
+        training_days = self._validate_rest_days(training_days)
 
         # Определяем типы тренировок по правилу 80/20
         workout_schedule = self._create_80_20_schedule(training_days, weeks)
@@ -138,7 +156,9 @@ class PlanGenerator:
                     multiplier=week_multiplier,
                     goal_type=goal_type,
                     goal_distance=goal_distance,
-                    is_recovery_week=is_recovery_week
+                    is_recovery_week=is_recovery_week,
+                    week_num=week_num,
+                    total_weeks=weeks
                 )
 
                 training = {
@@ -265,11 +285,183 @@ class PlanGenerator:
 
         return schedule
 
+    def _get_training_period(self, week_num: int, total_weeks: int) -> TrainingPeriod:
+        """
+        Определить период подготовки по номеру недели
+
+        Периодизация:
+        - Базовый: первые 60% (акцент на VO2max)
+        - Развивающий: следующие 30% (mix скорости и ПАНО)
+        - Подводка: последние 10% (короткие, быстрые)
+        """
+        progress = week_num / max(total_weeks - 1, 1)
+
+        if progress < 0.6:
+            return TrainingPeriod.BASE
+        elif progress < 0.9:
+            return TrainingPeriod.BUILD
+        else:
+            return TrainingPeriod.PEAK
+
+    def _select_interval_template(self, week_num: int, total_weeks: int,
+                                   goal_distance: int, goal_type: str) -> Dict:
+        """
+        Выбор формата интервалов с ротацией
+
+        Принципы:
+        1. Не повторять тот же формат 2 недели подряд
+        2. В базовом периоде — больше VO2max (длинные интервалы)
+        3. В развивающем — mix скорости и ПАНО
+        4. Перед забегом — короткие ускорения для нервной системы
+        5. Для трейла — добавляем горки
+        """
+        period = self._get_training_period(week_num, total_weeks)
+
+        # Получаем подходящие шаблоны с учётом недавно использованных
+        suitable_keys = get_suitable_intervals(period, self.recent_interval_templates)
+
+        # Для длинных забегов (>21км) в развивающем периоде добавляем ПАНО
+        if goal_distance >= 21 and period == TrainingPeriod.BUILD:
+            if 'threshold_2k' not in suitable_keys:
+                suitable_keys.append('threshold_2k')
+
+        # Для трейла добавляем возможность горок
+        if goal_type == 'trail' and period != TrainingPeriod.PEAK:
+            # 30% шанс на горки вместо обычных интервалов
+            if random.random() < 0.3:
+                return {'type': 'hills', 'template_key': 'medium_hills'}
+
+        # Случайный выбор из подходящих
+        if suitable_keys:
+            selected_key = random.choice(suitable_keys)
+        else:
+            selected_key = 'vo2max_5min'  # fallback
+
+        # Запоминаем использованный шаблон
+        self.recent_interval_templates.append(selected_key)
+        if len(self.recent_interval_templates) > 4:
+            self.recent_interval_templates.pop(0)
+
+        template = INTERVAL_TEMPLATES.get(selected_key, INTERVAL_TEMPLATES['vo2max_5min'])
+        return {'type': 'intervals', 'template_key': selected_key, 'template': template}
+
+    def _validate_rest_days(self, training_days: List[int]) -> List[int]:
+        """
+        Проверка и корректировка дней отдыха
+
+        Правила:
+        1. Минимум 2 дня отдыха в неделю
+        2. После длинной (воскресенье) — понедельник отдых
+        3. Не более 3 тренировочных дней подряд
+        """
+        all_days = set(range(1, 8))  # 1-7 (Пн-Вс)
+        rest_days = all_days - set(training_days)
+
+        # Правило 1: минимум 2 дня отдыха
+        if len(rest_days) < 2:
+            # Убираем лишние дни (приоритет: понедельник, пятница)
+            to_remove = []
+            if 1 in training_days:  # Понедельник
+                to_remove.append(1)
+            if 5 in training_days and len(to_remove) < 2 - len(rest_days):
+                to_remove.append(5)
+
+            training_days = [d for d in training_days if d not in to_remove]
+
+        # Правило 2: после длинной (обычно Вс=7) — Пн=1 отдых
+        if 7 in training_days and 1 in training_days:
+            training_days = [d for d in training_days if d != 1]
+
+        # Правило 3: не более 3 подряд
+        training_days = sorted(training_days)
+        result = []
+        consecutive = 0
+        prev_day = 0
+
+        for day in training_days:
+            if prev_day and day == prev_day + 1:
+                consecutive += 1
+            else:
+                consecutive = 1
+
+            if consecutive <= 3:
+                result.append(day)
+            prev_day = day
+
+        return result
+
+    def _generate_strength(self, strength_type: str = 'sbu_drills') -> Dict:
+        """
+        Генерация силовой тренировки
+
+        Args:
+            strength_type: 'gym_ofp' | 'sbu_drills' | 'outdoor_ofp' | 'core_stability'
+        """
+        template = STRENGTH_TEMPLATES.get(strength_type, STRENGTH_TEMPLATES['sbu_drills'])
+        description = format_strength_description(strength_type)
+
+        return {
+            'description': description,
+            'target_zone': 'Strength',
+            'duration_min': template['duration_min'],
+            'type': 'strength',
+            'distance_km': 0,
+        }
+
+    def _generate_hills(self, main_time: int, warmup: int, cooldown: int,
+                        hill_type: str, pace_info: str, hr_info: str) -> Dict:
+        """
+        Генерация горной тренировки
+
+        Args:
+            hill_type: Ключ из HILL_TEMPLATES
+        """
+        template = HILL_TEMPLATES.get(hill_type, HILL_TEMPLATES['medium_hills'])
+
+        # Рассчитываем параметры
+        if 'work_distance_m' in template:
+            distance_range = template['work_distance_m']
+            distance = random.randint(distance_range[0], distance_range[1])
+            distance_str = f"{distance}м"
+        else:
+            time_range = template.get('work_time_min', (3, 5))
+            time_val = random.randint(time_range[0], time_range[1])
+            distance_str = f"{time_val} мин"
+
+        gradient_range = template.get('gradient_percent', (6, 10))
+        gradient = random.randint(gradient_range[0], gradient_range[1])
+
+        reps_range = template['repetitions_range']
+        # Подбираем кол-во повторов под доступное время
+        max_reps = min(reps_range[1], int(main_time / 5))  # ~5 мин на повтор
+        reps = max(reps_range[0], max_reps)
+
+        description = f"""**{template['name']}**
+
+🏃 **Разминка:** {warmup} мин лёгкий бег
+
+{format_hill_description(hill_type, reps, distance_str, gradient)}
+
+🧘 **Заминка:** {cooldown} мин лёгкий бег
+
+{pace_info}
+💓 Пульс на подъёме: Z4-Z5
+"""
+        return {
+            'description': description,
+            'target_zone': 'Z4-Z5',
+        }
+
     def _generate_workout_details(self, workout_type: str, base_time: int, multiplier: float,
                                   goal_type: str = 'race', goal_distance: int = 21,
-                                  is_recovery_week: bool = False) -> Dict[str, Any]:
+                                  is_recovery_week: bool = False,
+                                  week_num: int = 0, total_weeks: int = 8) -> Dict[str, Any]:
         """
         Генерация детального описания тренировки с персонализацией
+
+        Args:
+            week_num: Номер текущей недели (для выбора шаблона интервалов)
+            total_weeks: Общее количество недель (для определения периода)
         """
         total_time = int(base_time * multiplier)
 
@@ -287,13 +479,18 @@ class PlanGenerator:
         base_pace = self._get_base_pace(goal_type, goal_distance)
 
         if workout_type == 'intervals' or workout_type == 'vo2max':
-            details = self._generate_intervals(main_time, warmup, cooldown, goal_type, pace_info, hr_info)
+            details = self._generate_intervals(
+                main_time, warmup, cooldown, goal_type, pace_info, hr_info,
+                week_num=week_num, total_weeks=total_weeks, goal_distance=goal_distance
+            )
         elif workout_type == 'tempo' or workout_type == 'threshold':
             details = self._generate_tempo(main_time, warmup, cooldown, goal_type, pace_info, hr_info)
         elif workout_type == 'long':
             details = self._generate_long_run(main_time, warmup, cooldown, goal_type, goal_distance, pace_info, hr_info)
         elif workout_type == 'recovery':
             details = self._generate_recovery(total_time, pace_info, hr_info)
+        elif workout_type == 'strength':
+            details = self._generate_strength('sbu_drills')
         else:  # easy
             details = self._generate_easy(main_time, warmup, cooldown, goal_type, pace_info, hr_info)
 
@@ -364,46 +561,110 @@ class PlanGenerator:
         return round(total_time / (base_pace * multiplier), 1)
 
     def _generate_intervals(self, main_time: int, warmup: int, cooldown: int,
-                           goal_type: str, pace_info: str, hr_info: str) -> Dict:
+                           goal_type: str, pace_info: str, hr_info: str,
+                           week_num: int = 0, total_weeks: int = 8,
+                           goal_distance: int = 21) -> Dict:
         """
-        Генерация интервальной тренировки
+        Генерация интервальной тренировки с разнообразием
 
-        Оптимальный протокол для VO2max: 4×5 мин с 2.5 мин восстановления
+        Использует шаблоны из workout_templates.py с ротацией по неделям.
         """
-        # Рассчитываем количество интервалов
-        # 5 мин работа + 2.5 мин отдых = 7.5 мин на цикл
-        interval_duration = 5  # минут
-        rest_duration = 2.5  # минут
-        cycle_duration = interval_duration + rest_duration
+        # Выбираем шаблон
+        selection = self._select_interval_template(week_num, total_weeks, goal_distance, goal_type)
 
-        num_intervals = max(3, int(main_time / cycle_duration))
-        num_intervals = min(num_intervals, 6)  # Не больше 6
+        # Если выбраны горки (для трейла)
+        if selection['type'] == 'hills':
+            return self._generate_hills(main_time, warmup, cooldown,
+                                        selection['template_key'], pace_info, hr_info)
 
-        total_interval_time = num_intervals * cycle_duration
+        template = selection['template']
+        template_key = selection['template_key']
 
-        if goal_type == 'trail':
-            description = (
-                f"**Интервалы в гору (VO2max)**\n"
-                f"- Разминка: {warmup} мин лёгкий бег\n"
-                f"- {num_intervals}× {interval_duration} мин подъём Z4-Z5 + {rest_duration} мин спуск легко\n"
-                f"- Заминка: {cooldown} мин лёгкий бег"
-            )
+        # Определяем параметры в зависимости от типа шаблона
+        if 'work_distance_m' in template:
+            # Интервалы по дистанции (200м, 400м, 800м, 1км, 2км, 3км)
+            reps_range = template['repetitions_range']
+            # Подбираем кол-во повторов под доступное время
+            avg_time_per_rep = 3  # минут на повтор в среднем
+            max_reps = min(reps_range[1], int(main_time / avg_time_per_rep))
+            reps = max(reps_range[0], max_reps)
+
+            distance_m = template['work_distance_m']
+            rest_m = template.get('rest_distance_m', 200)
+
+            # Форматируем время работы
+            time_range = template.get('work_time_range_sec', (60, 120))
+            work_time_sec = (time_range[0] + time_range[1]) // 2
+            work_time_formatted = f"{work_time_sec // 60}:{work_time_sec % 60:02d}" if work_time_sec >= 60 else f"{work_time_sec} сек"
+
+            main_description = f"{reps}× {distance_m}м за ~{work_time_formatted} + {rest_m}м трусцой"
+
+        elif 'work_time_min' in template:
+            # Интервалы по времени (5 мин)
+            reps_range = template['repetitions_range']
+            max_reps = min(reps_range[1], int(main_time / (template['work_time_min'] + template['rest_time_min'])))
+            reps = max(reps_range[0], max_reps)
+
+            work_min = template['work_time_min']
+            rest_min = template['rest_time_min']
+            main_description = f"{reps}× {work_min} мин {template['hr_zone']} + {rest_min} мин трусцой"
+            work_time_formatted = f"{work_min} мин"
+
+        elif 'structure_m' in template:
+            # Пирамида
+            structure = template['structure_m']
+            main_description = "Пирамида: " + " → ".join([f"{d}м" for d in structure])
+            main_description += f"\nОтдых между отрезками = 50% времени работы"
+            reps = len(structure)
+            work_time_formatted = "переменное"
+
+        elif template_key == 'fartlek':
+            # Фартлек
+            time_range = template['total_time_range_min']
+            fartlek_time = min(time_range[1], main_time)
+            main_description = f"{fartlek_time} мин переменного бега\nЧередуй: 1-3 мин быстро (Z3-Z4) / 1-2 мин легко (Z2)"
+            reps = 0
+            work_time_formatted = f"{fartlek_time} мин"
+
         else:
-            description = (
-                f"**Интервалы VO2max (Jack Daniels I-pace)**\n"
-                f"- Разминка: {warmup} мин Z2\n"
-                f"- {num_intervals}× {interval_duration} мин Z4-Z5 + {rest_duration} мин трусцой\n"
-                f"- Заминка: {cooldown} мин Z1-Z2"
-            )
+            # Fallback на стандартные 5 мин интервалы
+            reps = max(3, min(6, int(main_time / 7.5)))
+            main_description = f"{reps}× 5 мин Z4-Z5 + 2.5 мин трусцой"
+            work_time_formatted = "5 мин"
 
-        if pace_info:
-            description += f"\n- {pace_info}"
-        if hr_info:
-            description += f"\n- Пульс интервалов: {hr_info}"
+        # Форматируем описание
+        template_desc = template.get('description_template', '')
+        if template_desc:
+            try:
+                tips = template_desc.format(
+                    reps=reps,
+                    work_time=work_time_formatted,
+                    total_time=main_time
+                ).strip()
+            except Exception:
+                tips = ""
+        else:
+            tips = ""
+
+        description = f"""**{template['name']}** ({template.get('pace_zone', 'I')}-pace)
+
+🏃 **Разминка:** {warmup} мин Z2 + 4×100м ускорения
+
+🎯 **Основная часть:**
+   {main_description}
+
+🧘 **Заминка:** {cooldown} мин Z1-Z2
+
+{tips}
+
+📊 {pace_info}
+💓 Пульс работы: {hr_info}
+"""
 
         return {
             'description': description,
-            'target_zone': 'Z4-Z5',
+            'target_zone': template.get('hr_zone', 'Z4-Z5'),
+            'interval_template': template_key,
         }
 
     def _generate_tempo(self, main_time: int, warmup: int, cooldown: int,
