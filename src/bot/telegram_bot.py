@@ -1592,20 +1592,20 @@ class TrainingBot:
             )
             return
 
-        await message.reply_text("📥 Синхронизирую тренировки за последние 14 дней...")
+        await message.reply_text("📥 Синхронизирую тренировки за последние 60 дней...                    ")
 
         try:
             total_count = 0
             today = date.today()
-            for i in range(14):
+            for i in range(60):
                 sync_date = today - timedelta(days=i)
                 count = garmin_sync.sync_date_for_user(user.id, sync_date)
                 total_count += count
 
             if total_count > 0:
-                await message.reply_text(f"✅ Загружено {total_count} тренировок за последние 14 дней")
+                await message.reply_text(f"✅ Загружено {total_count} тренировок за последние 60 дней                    ")
             else:
-                await message.reply_text("ℹ️ Новых тренировок за последние 14 дней не найдено")
+                await message.reply_text("ℹ️ Новых тренировок за последние 60 дней не найдено          ")
         except Exception as e:
             logger.error(f"Ошибка синхронизации для {telegram_id}: {e}")
             await message.reply_text(

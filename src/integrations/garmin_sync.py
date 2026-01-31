@@ -1,6 +1,8 @@
 """Интеграция с Garmin Connect"""
 from datetime import date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
+from pathlib import Path
+import shutil
 from garminconnect import Garmin, GarminConnectConnectionError, GarminConnectAuthenticationError
 
 from ..utils.config import Config
@@ -17,6 +19,34 @@ class GarminSync:
         self.password = Config.GARMIN_PASSWORD
         self.client = None
         self.current_user_id = None
+
+    def clear_session(self) -> bool:
+        """
+        Очистить кешированную сессию Garmin (OAuth tokens)
+
+        Библиотека garminconnect использует garth, который сохраняет
+        OAuth tokens в ~/.garth/. При сбросе пользователя нужно удалить
+        эти файлы, иначе авторизация пройдёт с неправильными credentials.
+
+        Returns:
+            True если успешно или директории нет
+        """
+        try:
+            garth_dir = Path.home() / '.garth'
+            if garth_dir.exists():
+                shutil.rmtree(garth_dir)
+                logger.info(f"✅ Удалена директория с OAuth tokens: {garth_dir}")
+            else:
+                logger.debug(f"Директория {garth_dir} не существует, пропуск")
+
+            # Сбрасываем текущий client
+            self.client = None
+            self.current_user_id = None
+
+            return True
+        except Exception as e:
+            logger.error(f"❌ Ошибка при очистке сессии Garmin: {e}")
+            return False
 
     def login(self, email: str = None, password: str = None) -> bool:
         """
