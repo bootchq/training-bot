@@ -123,8 +123,8 @@ class TrainingBot:
         if not credentials:
             # Новый пользователь - запрашиваем регистрацию
             keyboard = [
-                [InlineKeyboardButton("✅ Есть", callback_data="register_garmin")],
-                [InlineKeyboardButton("❌ Создать", callback_data="no_garmin_account")]
+                [InlineKeyboardButton("✅ Есть аккаунт Garmin   ", callback_data="register_garmin")],
+                [InlineKeyboardButton("❌ Создать новый аккаунт ", callback_data="no_garmin_account")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -970,8 +970,8 @@ class TrainingBot:
         await query.answer()
 
         keyboard = [
-            [InlineKeyboardButton("🏁 К забегу", callback_data="goal_race")],
-            [InlineKeyboardButton("🏃 Для себя", callback_data="goal_fitness")]
+            [InlineKeyboardButton("🏁 Подготовка к забегу  ", callback_data="goal_race")],
+            [InlineKeyboardButton("🏃 Для здоровья и фитнеса", callback_data="goal_fitness")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -998,12 +998,12 @@ class TrainingBot:
             # Для забега — выбор типа (шоссе/трейл)
             keyboard = [
                 [
-                    InlineKeyboardButton("🏃 21 км", callback_data="racetype_half"),
-                    InlineKeyboardButton("🏃 42 км", callback_data="racetype_marathon")
+                    InlineKeyboardButton("🏃 Полумарафон 21км", callback_data="racetype_half"),
+                    InlineKeyboardButton("🏃 Марафон 42км    ", callback_data="racetype_marathon")
                 ],
                 [
-                    InlineKeyboardButton("📏 Своя", callback_data="racetype_custom"),
-                    InlineKeyboardButton("⛰ Трейл", callback_data="racetype_trail")
+                    InlineKeyboardButton("📏 Своя дистанция  ", callback_data="racetype_custom"),
+                    InlineKeyboardButton("⛰️ Трейл-забег    ", callback_data="racetype_trail")
                 ]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
@@ -1248,9 +1248,9 @@ class TrainingBot:
             else:
                 # Нет истории → спрашиваем уровень
                 keyboard = [
-                    [InlineKeyboardButton("🟢 Новичок", callback_data="level_onboarding_beginner")],
-                    [InlineKeyboardButton("🟡 Средний", callback_data="level_onboarding_intermediate")],
-                    [InlineKeyboardButton("🔴 Опытный", callback_data="level_onboarding_advanced")]
+                    [InlineKeyboardButton("🟢 Новичок в беге        ", callback_data="level_onboarding_beginner")],
+                    [InlineKeyboardButton("🟡 Средний уровень       ", callback_data="level_onboarding_intermediate")],
+                    [InlineKeyboardButton("🔴 Опытный бегун         ", callback_data="level_onboarding_advanced")]
                 ]
 
                 await query.message.reply_text(
