@@ -916,9 +916,9 @@ class Database:
             deleted_goals = session.query(Goal).filter_by(user_id=user.id).delete()
             deleted_records = session.query(PersonalRecord).filter_by(user_id=user.id).delete()
 
-            # Сбрасываем всё кроме telegram_id
-            user.garmin_email = None
-            user.garmin_password = None
+            # Сбрасываем всё кроме telegram_id и Garmin credentials (для тестирования)
+            # user.garmin_email = None  # СОХРАНЯЕМ для удобства тестирования
+            # user.garmin_password = None  # СОХРАНЯЕМ для удобства тестирования
             user.strava_access_token = None
             user.strava_refresh_token = None
             user.strava_token_expires = None

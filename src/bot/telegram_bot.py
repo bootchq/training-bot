@@ -1461,12 +1461,13 @@ class TrainingBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            "⚠️ **Сброс данных**\n\n"
-            "Это удалит:\n"
-            "- Привязку Garmin/Strava\n"
-            "- Привязку Google Calendar\n"
-            "- Настройки цели и тренировок\n\n"
-            "Ты уверен?",
+            "⚠️ **Сброс данных**                                         \n\n"
+            "Это удалит:                                                 \n"
+            "- План тренировок                                           \n"
+            "- Настройки цели                                            \n"
+            "- Историю тренировок                                        \n\n"
+            "**Сохранится:** авторизация Garmin (для удобства теста)     \n\n"
+            "Ты уверен?                                                  ",
             reply_markup=reply_markup,
             parse_mode='Markdown'
         )
@@ -1507,8 +1508,8 @@ class TrainingBot:
                 logger.warning(f"⚠️ ReminderScheduler не инициализирован")
 
             # Очищаем кешированную сессию Garmin (OAuth tokens)
-            logger.info(f"🔄 Очистка Garmin сессии")
-            garmin_sync.clear_session()
+            # logger.info(f"🔄 Очистка Garmin сессии")
+            # garmin_sync.clear_session()  # ЗАКОММЕНТИРОВАНО: сохраняем Garmin авторизацию для тестирования
 
             # Сбрасываем данные в БД
             logger.info(f"🔄 Вызов db.reset_user для telegram_id={telegram_id}")
