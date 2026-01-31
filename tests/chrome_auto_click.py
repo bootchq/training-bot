@@ -114,7 +114,7 @@ try:
             message_input = driver.find_element(By.CSS_SELECTOR, selector)
             if message_input:
                 break
-        except:
+        except Exception:
             continue
 
     if message_input:
@@ -151,7 +151,7 @@ try:
                 buttons = found
                 print(f"✅ Найдено {len(buttons)} кнопок", flush=True)
                 break
-        except:
+        except Exception:
             continue
 
     if buttons:
@@ -217,12 +217,12 @@ except Exception as e:
 finally:
     try:
         driver.quit()
-    except:
+    except Exception:
         pass
 
     try:
         chrome_process.terminate()
-    except:
+    except Exception:
         pass
 
     print("✅ Завершено", flush=True)

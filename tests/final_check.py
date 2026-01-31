@@ -32,7 +32,7 @@ if not BOT_TOKEN:
                 if 'TELEGRAM_BOT_TOKEN' in line:
                     BOT_TOKEN = line.split('=')[1].strip().strip('"').strip("'")
                     break
-    except:
+    except Exception:
         pass
 
 if not BOT_TOKEN:

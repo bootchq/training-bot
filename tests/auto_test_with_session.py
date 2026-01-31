@@ -35,7 +35,7 @@ try:
         chrome_running = True
     else:
         chrome_running = False
-except:
+except Exception:
     chrome_running = False
     print("⚠️  Remote debugging недоступен", flush=True)
 
@@ -77,7 +77,7 @@ if not chrome_running:
             if r.status_code == 200:
                 print("✅ Remote debugging готов!", flush=True)
                 break
-        except:
+        except Exception:
             pass
     else:
         print("⚠️  Таймаут ожидания порта", flush=True)
@@ -153,7 +153,7 @@ for selector in input_selectors:
         message_input = driver.find_element(By.CSS_SELECTOR, selector)
         if message_input:
             break
-    except:
+    except Exception:
         continue
 
 if message_input:
@@ -181,7 +181,7 @@ for selector in ['button.reply-markup-button', 'button[class*="Button"]']:
         if found:
             buttons = found
             break
-    except:
+    except Exception:
         continue
 
 if buttons:

@@ -499,7 +499,7 @@ class StatsCalculator:
         try:
             parts = pace_str.split(':')
             return int(parts[0]) * 60 + int(parts[1])
-        except:
+        except Exception:
             return 0.0
 
 

@@ -93,7 +93,7 @@ def find_bot(driver, bot_username):
                 if search_input:
                     print("✅ Найдено поле поиска")
                     break
-            except:
+            except Exception:
                 continue
 
         if not search_input:
@@ -146,7 +146,7 @@ def test_bot_commands(driver):
                 if message_input:
                     print("✅ Найдено поле ввода сообщения")
                     break
-            except:
+            except Exception:
                 continue
 
         if not message_input:
@@ -185,7 +185,7 @@ def test_bot_commands(driver):
                     btn_text = btn.text
                     if btn_text:
                         print(f"     {i}. {btn_text}")
-                except:
+                except Exception:
                     pass
 
         # ТЕСТ 2: Команда /help

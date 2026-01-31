@@ -150,7 +150,7 @@ class OnboardingTester:
                 text = await el.inner_text()
                 if text:
                     buttons.append(text)
-        except:
+        except Exception:
             pass
         return buttons
 

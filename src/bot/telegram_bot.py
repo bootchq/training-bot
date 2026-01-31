@@ -907,7 +907,7 @@ class TrainingBot:
         # Удаляем сообщение с паролем для безопасности
         try:
             await update.message.delete()
-        except:
+        except Exception:
             pass
 
         # Отправляем сообщение о начале синхронизации и сохраняем его
@@ -1430,7 +1430,7 @@ class TrainingBot:
             # Удаляем сообщение с токеном для безопасности
             try:
                 await update.message.delete()
-            except:
+            except Exception:
                 pass
 
             # Пробуем синхронизировать

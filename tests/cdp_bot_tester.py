@@ -55,7 +55,7 @@ async def launch_chrome():
                     data = await resp.json()
                     ok(f"Chrome уже запущен: {data.get('Browser', 'Chrome')}")
                     return True
-    except:
+    except Exception:
         pass
 
     info("Запускаю Chrome...")
@@ -88,7 +88,7 @@ async def launch_chrome():
                     if resp.status == 200:
                         ok("Chrome запущен")
                         return True
-        except:
+        except Exception:
             pass
 
     fail("Не удалось запустить Chrome")
@@ -187,14 +187,14 @@ async def test_with_pyppeteer():
     try:
         await tg_page.waitForSelector(input_selector, timeout=10000)
         ok("Поле ввода найдено")
-    except:
+    except Exception:
         fail("Поле ввода не найдено")
         # Попробуем другой селектор
         input_selector = '[contenteditable="true"]'
         try:
             await tg_page.waitForSelector(input_selector, timeout=5000)
             ok(f"Использую альтернативный селектор: {input_selector}")
-        except:
+        except Exception:
             fail("Не могу найти поле ввода")
             return False
 

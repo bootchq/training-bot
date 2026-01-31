@@ -104,7 +104,7 @@ async def main():
                         print(f"✅ Найдено поле поиска: {selector}")
                         search_found = True
                         break
-                except:
+                except Exception:
                     continue
 
             if not search_found:
@@ -126,7 +126,7 @@ async def main():
                         print(f"✅ Найден список чатов: {selector}")
                         chats_found = True
                         break
-                except:
+                except Exception:
                     continue
 
             if not chats_found:

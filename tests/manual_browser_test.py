@@ -134,5 +134,5 @@ finally:
     try:
         driver.quit()
         print("✅ Браузер закрыт", flush=True)
-    except:
+    except Exception:
         pass

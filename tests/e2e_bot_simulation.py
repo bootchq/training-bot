@@ -326,7 +326,7 @@ async def main():
             env_path = os.path.join(os.path.dirname(__file__), '..', '.env')
             load_dotenv(env_path)
             bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-        except:
+        except Exception:
             pass
 
     if not bot_token:

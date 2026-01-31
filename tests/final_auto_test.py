@@ -35,7 +35,7 @@ driver = None
 try:
     driver = webdriver.Chrome(options=chrome_options)
     print("✅ Подключился к запущенному Chrome!", flush=True)
-except:
+except Exception:
     print("⚠️  Chrome не запущен с remote debugging", flush=True)
     print("🚀 Запускаю Chrome с ТВОИМ дефолтным профилем...", flush=True)
 
@@ -80,7 +80,7 @@ for selector in input_selectors:
         message_input = driver.find_element(By.CSS_SELECTOR, selector)
         if message_input:
             break
-    except:
+    except Exception:
         continue
 
 if message_input:
@@ -108,7 +108,7 @@ for selector in ['button.reply-markup-button', 'button[class*="Button"]']:
         if found:
             buttons = found
             break
-    except:
+    except Exception:
         continue
 
 if buttons:

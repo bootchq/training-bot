@@ -114,6 +114,6 @@ async def reset_bot(client: TelegramClient, bot_username: str, timeout: int):
                         await button.click()
                         try:
                             await conv.get_response()
-                        except:
+                        except Exception:
                             pass
                         break

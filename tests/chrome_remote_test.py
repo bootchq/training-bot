@@ -132,7 +132,7 @@ try:
             if message_input:
                 print(f"✅ Поле ввода найдено: {selector}")
                 break
-        except:
+        except Exception:
             continue
 
     if message_input:
@@ -180,7 +180,7 @@ try:
                 print(f"✅ Найдено кнопок: {len(buttons)} ({selector})")
                 buttons_found = buttons
                 break
-        except:
+        except Exception:
             continue
 
     if buttons_found:
@@ -277,13 +277,13 @@ except Exception as e:
 finally:
     try:
         driver.quit()
-    except:
+    except Exception:
         pass
 
     try:
         chrome_process.terminate()
         chrome_process.wait(timeout=5)
-    except:
+    except Exception:
         chrome_process.kill()
 
     print("✅ Chrome закрыт")

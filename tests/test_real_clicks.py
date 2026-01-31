@@ -219,7 +219,7 @@ try:
                 print(f"   {log['level']}: {log['message'][:200]}")
         else:
             print("   Нет ошибок")
-    except:
+    except Exception:
         print("   Не удалось получить логи")
 
     driver.quit()

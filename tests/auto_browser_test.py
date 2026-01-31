@@ -37,7 +37,7 @@ try:
     if r.status_code == 200:
         chrome_running = True
         print("✅ Chrome уже запущен с remote debugging")
-except:
+except Exception:
     pass
 
 if not chrome_running:

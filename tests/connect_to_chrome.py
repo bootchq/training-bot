@@ -73,7 +73,7 @@ try:
             if message_input:
                 print(f"   Найдено поле ввода: {selector}", flush=True)
                 break
-        except:
+        except Exception:
             continue
 
     if message_input:
@@ -107,7 +107,7 @@ try:
                 buttons = found
                 print(f"✅ Найдено {len(buttons)} кнопок", flush=True)
                 break
-        except:
+        except Exception:
             continue
 
     if buttons:

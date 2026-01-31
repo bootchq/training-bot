@@ -109,7 +109,7 @@ class RecordsManager:
         # Преобразуем темп в секунды на км для сравнения
         try:
             pace_sec_per_km = self._pace_to_seconds(training.avg_pace)
-        except:
+        except Exception:
             return new_records
 
         # Проверяем соответствие дистанциям (с допуском ±10%)

@@ -99,7 +99,7 @@ async def main():
                 await asyncio.sleep(2)
                 print(f"✅ Кликнул: {text}")
                 return True
-            except:
+            except Exception:
                 print(f"⚠️ Кнопка '{text}' не найдена")
                 return False
 
@@ -112,7 +112,7 @@ async def main():
                     t = await el.inner_text()
                     if t:
                         buttons.append(t)
-            except:
+            except Exception:
                 pass
             return buttons
 

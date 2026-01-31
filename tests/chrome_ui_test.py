@@ -195,7 +195,7 @@ def main():
         try:
             driver.quit()
             print("✅ Браузер закрыт")
-        except:
+        except Exception:
             pass
 
 if __name__ == "__main__":

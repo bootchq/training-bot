@@ -130,7 +130,7 @@ def main():
                 if message_input:
                     print(f"\n✅ Поле ввода найдено: {selector}")
                     break
-            except:
+            except Exception:
                 continue
 
         if not message_input:
@@ -207,7 +207,7 @@ def main():
         try:
             driver.quit()
             print("✅ Браузер закрыт")
-        except:
+        except Exception:
             pass
 
 if __name__ == "__main__":

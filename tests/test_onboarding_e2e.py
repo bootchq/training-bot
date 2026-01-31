@@ -89,7 +89,7 @@ class OnboardingTester:
                 inp.send_keys(Keys.ENTER)
                 time.sleep(2)
                 return True
-            except:
+            except Exception:
                 continue
 
         return False
@@ -112,7 +112,7 @@ class OnboardingTester:
                         btn.click()
                         time.sleep(2)
                         return True
-            except:
+            except Exception:
                 continue
 
         return False
@@ -131,7 +131,7 @@ class OnboardingTester:
                 for btn in found:
                     if btn.text:
                         buttons.append(btn.text)
-            except:
+            except Exception:
                 continue
 
         return buttons
