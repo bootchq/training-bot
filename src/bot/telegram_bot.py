@@ -1817,12 +1817,62 @@ class TrainingBot:
                 context.user_data['awaiting_trail_distance'] = False
                 logger.info(f"Сохранена дистанция трейла {distance_km} км для user={telegram_id}")
 
-                await update.message.reply_text(f"⛰ Готовимся к трейлу {distance_km} км!")
-                await self._ask_goal_date(message=update.message, context=context)
+                # Спрашиваем набор высоты
+                await update.message.reply_text(
+                    f"✅ Дистанция: {distance_km} км\n\n"
+                    "⛰️ Какой набор высоты в метрах?\n"
+                    "(например: 1000, 2500, 5000):"
+                )
+                context.user_data['awaiting_trail_elevation'] = True
                 return
             except ValueError as e:
                 logger.warning(f"Некорректная дистанция трейла от user={telegram_id}: {e}")
                 await update.message.reply_text("❌ Пожалуйста, введи число\n(например: 30, 50, 100)")
+                return
+
+        # === ОНБОРДИНГ: ввод набора высоты для трейла ===
+        if context.user_data.get('awaiting_trail_elevation'):
+            logger.info(f"Обработка набора высоты от user={telegram_id}: '{message_text}'")
+            try:
+                elevation_gain = int(message_text)
+                if elevation_gain < 0 or elevation_gain > 15000:
+                    raise ValueError(f"Набор высоты вне диапазона: {elevation_gain}")
+
+                db.save_user_goal(user.id, goal_elevation_gain=elevation_gain)
+                context.user_data['awaiting_trail_elevation'] = False
+                logger.info(f"Сохранён набор высоты {elevation_gain}м для user={telegram_id}")
+
+                # Спрашиваем количество пунктов питания
+                await update.message.reply_text(
+                    f"✅ Набор высоты: {elevation_gain} м\n\n"
+                    "🚰 Сколько пунктов питания на трассе?\n"
+                    "(например: 3, 5, 10):"
+                )
+                context.user_data['awaiting_trail_aid_stations'] = True
+                return
+            except ValueError as e:
+                logger.warning(f"Некорректный набор высоты от user={telegram_id}: {e}")
+                await update.message.reply_text("❌ Пожалуйста, введи число\n(например: 1000, 2500, 5000)")
+                return
+
+        # === ОНБОРДИНГ: ввод количества пунктов питания для трейла ===
+        if context.user_data.get('awaiting_trail_aid_stations'):
+            logger.info(f"Обработка пунктов питания от user={telegram_id}: '{message_text}'")
+            try:
+                aid_stations = int(message_text)
+                if aid_stations < 0 or aid_stations > 50:
+                    raise ValueError(f"Количество пунктов вне диапазона: {aid_stations}")
+
+                db.save_user_goal(user.id, goal_aid_stations=aid_stations)
+                context.user_data['awaiting_trail_aid_stations'] = False
+                logger.info(f"Сохранено {aid_stations} пунктов питания для user={telegram_id}")
+
+                await update.message.reply_text(f"✅ Пунктов питания: {aid_stations}")
+                await self._ask_goal_date(message=update.message, context=context)
+                return
+            except ValueError as e:
+                logger.warning(f"Некорректное количество пунктов от user={telegram_id}: {e}")
+                await update.message.reply_text("❌ Пожалуйста, введи число\n(например: 3, 5, 10)")
                 return
 
         # === ОНБОРДИНГ: ввод даты забега ===

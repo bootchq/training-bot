@@ -28,9 +28,11 @@ class User(Base):
     # Токен для публичной ICS подписки
     calendar_token = Column(String, nullable=True, unique=True, index=True)
     # Цель и настройки тренировок
-    goal_type = Column(String, nullable=True)  # race / weight_loss / endurance
+    goal_type = Column(String, nullable=True)  # race / weight_loss / endurance / trail
     goal_distance_km = Column(Integer, nullable=True)  # для забега
     goal_date = Column(Date, nullable=True)  # дата забега
+    goal_elevation_gain = Column(Integer, nullable=True)  # набор высоты в метрах (для трейла)
+    goal_aid_stations = Column(Integer, nullable=True)  # количество пунктов питания (для трейла)
     experience_level = Column(String, nullable=True)  # beginner / intermediate / advanced
     include_strength = Column(Boolean, nullable=True)  # силовые да/нет
     training_days = Column(JSON, nullable=True)  # ["mon", "wed", "fri"]
@@ -252,6 +254,13 @@ class Database:
                 logger.info("➕ Добавляю поля времени старта (start_time_weekday, start_time_weekend)")
                 cursor.execute("ALTER TABLE users ADD COLUMN start_time_weekday VARCHAR")
                 cursor.execute("ALTER TABLE users ADD COLUMN start_time_weekend VARCHAR")
+                needs_migration = True
+
+            # Поля для трейл-забегов
+            if 'goal_elevation_gain' not in columns:
+                logger.info("➕ Добавляю поля для трейл-забегов (elevation_gain, aid_stations)")
+                cursor.execute("ALTER TABLE users ADD COLUMN goal_elevation_gain INTEGER")
+                cursor.execute("ALTER TABLE users ADD COLUMN goal_aid_stations INTEGER")
                 needs_migration = True
 
             # Проверяем таблицу training_plan
@@ -714,8 +723,8 @@ class Database:
             return user.google_refresh_token
 
     def save_user_goal(self, user_id: int, goal_type: str = None, goal_distance_km: int = None,
-                       goal_date=None, experience_level: str = None,
-                       include_strength: bool = None, training_days: list = None,
+                       goal_date=None, goal_elevation_gain: int = None, goal_aid_stations: int = None,
+                       experience_level: str = None, include_strength: bool = None, training_days: list = None,
                        training_time: str = None, training_time_min: int = None,
                        fitness_level: str = None,
                        start_time_weekday: str = None, start_time_weekend: str = None) -> bool:
@@ -746,6 +755,10 @@ class Database:
                 user.goal_distance_km = goal_distance_km
             if goal_date is not None:
                 user.goal_date = goal_date
+            if goal_elevation_gain is not None:
+                user.goal_elevation_gain = goal_elevation_gain
+            if goal_aid_stations is not None:
+                user.goal_aid_stations = goal_aid_stations
             if experience_level is not None:
                 user.experience_level = experience_level
             if include_strength is not None:
