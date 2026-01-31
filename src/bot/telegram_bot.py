@@ -131,9 +131,11 @@ class TrainingBot:
             welcome_text = """
 🏃 Привет! Я твой бот-тренер по бегу.
 
-Помогу подготовиться к забегам и адаптировать тренировки под твой уровень.
+Помогу подготовиться к забегам и адаптировать
+тренировки под твой уровень.
 
-Для работы мне нужен доступ к твоим тренировкам в Garmin Connect.
+Для работы мне нужен доступ к твоим тренировкам
+в Garmin Connect.
 
 У тебя есть аккаунт Garmin?
 """
@@ -321,23 +323,23 @@ class TrainingBot:
             # Формируем ответ пользователю
             result_lines = []
             if total_count > 0:
-                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней")
+                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней                    ")
             else:
-                result_lines.append("ℹ️ Новых тренировок не найдено")
+                result_lines.append("ℹ️ Новых тренировок не найдено                                    ")
 
             if lthr:
-                result_lines.append(f"\n**Физиологические данные:**")
-                result_lines.append(f"- LTHR: {lthr} уд/мин")
+                result_lines.append(f"\n**Физиологические данные:**                                      ")
+                result_lines.append(f"- LTHR: {lthr} уд/мин                                                ")
 
             # Проверяем рост VDOT
             vdot_changed = False
             if vdot:
                 if old_vdot and vdot > old_vdot:
                     delta = vdot - old_vdot
-                    result_lines.append(f"- VDOT: {vdot:.0f} (было {old_vdot:.0f}, **+{delta:.1f}**)")
+                    result_lines.append(f"- VDOT: {vdot:.0f} (было {old_vdot:.0f}, **+{delta:.1f}**)                ")
                     vdot_changed = True
                 else:
-                    result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})")
+                    result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})                              ")
 
             await update.message.reply_text("\n".join(result_lines), parse_mode='Markdown')
 
@@ -419,7 +421,7 @@ class TrainingBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await update.message.reply_text(
-            "📊 Выбери период для статистики:",
+            "📊 Выбери период для статистики:                             ",
             reply_markup=reply_markup
         )
 
@@ -829,6 +831,15 @@ class TrainingBot:
         # Запускаем первую синхронизацию (60 дней + LTHR + VDOT)
         user = db.get_or_create_user(telegram_id)
         try:
+            # ✅ Авторизуемся с credentials нового пользователя
+            if not garmin_sync.login(email, password):
+                await status_message.edit_text(
+                    "❌ Не удалось авторизоваться в Garmin.\n\n"
+                    "Проверь правильность email и пароля.\n\n"
+                    "Используй /start для повторной попытки"
+                )
+                return ConversationHandler.END
+
             # Синхронизируем 60 дней + получаем физиологические данные
             total_count, lthr, personal_records = garmin_sync.sync_last_60_days(user.id)
 
@@ -848,20 +859,20 @@ class TrainingBot:
             # Формируем ответ
             result_lines = []
             if total_count > 0:
-                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней")
+                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней                    ")
             else:
-                result_lines.append("ℹ️ Тренировок за последние 60 дней не найдено")
+                result_lines.append("ℹ️ Тренировок за последние 60 дней не найдено          ")
 
             if lthr or vdot:
-                result_lines.append("\n**Персонализация:**")
+                result_lines.append("\n**Персонализация:**                                      ")
                 if lthr:
-                    result_lines.append(f"- LTHR: {lthr} уд/мин (зоны пульса рассчитаны)")
+                    result_lines.append(f"- LTHR: {lthr} уд/мин (зоны пульса рассчитаны)                ")
                 if vdot:
-                    result_lines.append(f"- VDOT: {vdot:.0f} (темпы рассчитаны по {vdot_source})")
-                result_lines.append("\nТвой план будет персонализирован!")
+                    result_lines.append(f"- VDOT: {vdot:.0f} (темпы рассчитаны по {vdot_source})              ")
+                result_lines.append("\nТвой план будет персонализирован!                        ")
 
             # Добавляем призыв к действию
-            result_lines.append("\n▶️ Настроим план тренировок")
+            result_lines.append("\n▶️ Настроим план тренировок                              ")
 
             # Кнопки для следующего шага (в одну строку)
             keyboard = [
@@ -976,8 +987,8 @@ class TrainingBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.message.reply_text(
-            "🎯 Какая у тебя цель?\n\n"
-            "Выбери направление:",
+            "🎯 Какая у тебя цель?                                        \n\n"
+            "Выбери направление:                                          ",
             reply_markup=reply_markup
         )
 
@@ -1009,7 +1020,7 @@ class TrainingBot:
             reply_markup = InlineKeyboardMarkup(keyboard)
 
             await query.edit_message_text(
-                "🏁 Какой тип забега?",
+                "🏁 Какой тип забега?                                         ",
                 reply_markup=reply_markup
             )
 
@@ -1199,9 +1210,9 @@ class TrainingBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         text = (
-            "📅 Выбери дни для тренировок:\n\n"
-            "(нажми на дни, затем \"Готово\")\n\n"
-            "Выбрано: —"
+            "📅 Выбери дни для тренировок:                                \n\n"
+            "(нажми на дни, затем \"Готово\")                                \n\n"
+            "Выбрано: —                                                   "
         )
 
         if query:
@@ -1254,9 +1265,9 @@ class TrainingBot:
                 ]
 
                 await query.message.reply_text(
-                    "🏃 Какой у тебя опыт в беге?\n\n"
-                    "Нет истории тренировок, поэтому спрашиваю.\n"
-                    "Это нужно чтобы подобрать правильный объём и интенсивность тренировок",
+                    "🏃 Какой у тебя опыт в беге?                                 \n\n"
+                    "Нет истории тренировок, поэтому спрашиваю.                   \n"
+                    "Это нужно чтобы подобрать правильный объём и интенсивность тренировок                    ",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             return
@@ -1293,9 +1304,9 @@ class TrainingBot:
         reply_markup = InlineKeyboardMarkup(keyboard)
 
         await query.edit_message_text(
-            f"📅 Выбери дни для тренировок:\n\n"
-            f"(нажми на дни, затем \"Готово\")\n\n"
-            f"Выбрано: {selected_text}",
+            f"📅 Выбери дни для тренировок:                                \n\n"
+            f"(нажми на дни, затем \"Готово\")                                \n\n"
+            f"Выбрано: {selected_text}                                     ",
             reply_markup=reply_markup
         )
 
@@ -1411,6 +1422,10 @@ class TrainingBot:
                 logger.info(f"✅ Удалено {removed_count} напоминаний для user.id={user.id}")
             else:
                 logger.warning(f"⚠️ ReminderScheduler не инициализирован")
+
+            # Очищаем кешированную сессию Garmin (OAuth tokens)
+            logger.info(f"🔄 Очистка Garmin сессии")
+            garmin_sync.clear_session()
 
             # Сбрасываем данные в БД
             logger.info(f"🔄 Вызов db.reset_user для telegram_id={telegram_id}")
