@@ -1,5 +1,5 @@
 """Планировщик задач"""
-from datetime import timedelta
+from datetime import timedelta, time as dt_time
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from telegram import Bot
@@ -94,6 +94,10 @@ class TrainingScheduler:
         )
 
         self.scheduler.start()
+
+        # Планируем напоминания за 2 часа до тренировок на следующие 7 дней
+        self.schedule_pre_workout_reminders()
+
         logger.info("Планировщик запущен (00:00 - анализ, 01:00 - план, 09:00 - напоминание, 12:00 - удаление, 21:00 - синхронизация, вс 20:00 - итоги)")
 
     def stop(self):
@@ -176,6 +180,9 @@ class TrainingScheduler:
                     logger.warning("Telegram бот не настроен, опрос не отправлен")
             else:
                 logger.info(f"Тренировка за {yesterday} не найдена - опрос не требуется")
+
+            # 5. Перепланирование напоминаний за 2 часа на новый день
+            self.schedule_pre_workout_reminders()
 
             logger.info("=" * 50)
             logger.info("✅ Ежедневный анализ завершён")
@@ -496,6 +503,167 @@ class TrainingScheduler:
 
         except Exception as e:
             logger.error(f"Ошибка напоминания о синхронизации: {e}", exc_info=True)
+
+    def schedule_pre_workout_reminders(self):
+        """
+        Планирование напоминаний за 2 часа до тренировок на следующие 7 дней
+        """
+        try:
+            if not self.telegram_bot or not self.user_id:
+                return
+
+            today = time_utils.today()
+            user = db.get_user_by_id(self.user_id)
+            if not user:
+                return
+
+            # Получаем тренировки на следующие 7 дней
+            end_date = today + timedelta(days=7)
+            plans = db.get_plan_for_period(self.user_id, today, end_date)
+
+            if not plans:
+                logger.info("Нет тренировок на следующие 7 дней для планирования напоминаний")
+                return
+
+            scheduled_count = 0
+            for plan in plans:
+                # Определяем время тренировки
+                is_weekend = plan.date.weekday() >= 5
+                workout_time_str = user.start_time_weekend if is_weekend else user.start_time_weekday
+
+                if not workout_time_str:
+                    continue
+
+                try:
+                    # Парсим время тренировки
+                    hour, minute = map(int, workout_time_str.split(':'))
+
+                    # Время за 2 часа до тренировки
+                    reminder_datetime = time_utils.combine_datetime(plan.date, dt_time(hour, minute))
+                    reminder_datetime = reminder_datetime - timedelta(hours=2)
+
+                    # Проверяем что напоминание в будущем
+                    now = time_utils.now()
+                    if reminder_datetime <= now:
+                        continue
+
+                    # Планируем напоминание за 2 часа
+                    job_id_pre = f'pre_workout_{self.user_id}_{plan.date.isoformat()}'
+                    self.scheduler.add_job(
+                        self.send_pre_workout_reminder,
+                        trigger='date',
+                        run_date=reminder_datetime,
+                        args=[plan.date, workout_time_str],
+                        id=job_id_pre,
+                        replace_existing=True
+                    )
+
+                    # Планируем удаление в время тренировки
+                    workout_datetime = time_utils.combine_datetime(plan.date, dt_time(hour, minute))
+                    job_id_delete = f'delete_workout_{self.user_id}_{plan.date.isoformat()}'
+                    self.scheduler.add_job(
+                        self.delete_workout_reminders,
+                        trigger='date',
+                        run_date=workout_datetime,
+                        args=[plan.date],
+                        id=job_id_delete,
+                        replace_existing=True
+                    )
+
+                    scheduled_count += 1
+
+                except Exception as e:
+                    logger.warning(f"Ошибка планирования напоминания для {plan.date}: {e}")
+
+            logger.info(f"Запланировано {scheduled_count} напоминаний за 2 часа до тренировок")
+
+        except Exception as e:
+            logger.error(f"Ошибка планирования напоминаний: {e}", exc_info=True)
+
+    async def send_pre_workout_reminder(self, workout_date, workout_time: str):
+        """
+        Напоминание за 2 часа до тренировки
+
+        Args:
+            workout_date: Дата тренировки
+            workout_time: Время тренировки (строка "HH:MM")
+        """
+        try:
+            if not self.telegram_bot:
+                return
+
+            # Получаем план на эту дату
+            plans = db.get_plan_for_week(self.user_id, workout_date)
+            workout_plan = None
+            for plan in plans:
+                if plan.date == workout_date:
+                    workout_plan = plan
+                    break
+
+            if not workout_plan:
+                return
+
+            # Форматируем сообщение
+            text = f"⏰ **Через 2 часа тренировка!**\n\n"
+            text += f"**{workout_plan.type.upper()}** в {workout_time}\n"
+
+            if workout_plan.duration_min:
+                text += f"⏱ {workout_plan.duration_min} мин"
+            if workout_plan.distance_km:
+                text += f" / ~{workout_plan.distance_km:.1f} км"
+
+            text += "\n\n🏃 Готовься к выходу!"
+
+            # Отправляем сообщение и сохраняем message_id
+            message = await self.telegram_bot.send_message(
+                chat_id=self.telegram_id,
+                text=text,
+                parse_mode='Markdown'
+            )
+
+            # Сохраняем message_id для последующего удаления
+            db.save_reminder(self.user_id, workout_date, 'pre_workout', message.message_id)
+
+            logger.info(f"Напоминание за 2 часа отправлено для {workout_date}, message_id={message.message_id}")
+
+        except Exception as e:
+            logger.error(f"Ошибка отправки напоминания за 2 часа: {e}", exc_info=True)
+
+    async def delete_workout_reminders(self, workout_date):
+        """
+        Удаление напоминаний в время тренировки
+
+        Args:
+            workout_date: Дата тренировки
+        """
+        try:
+            if not self.telegram_bot:
+                return
+
+            # Получаем все напоминания за 2 часа для этой даты
+            reminders = db.get_reminders_to_delete(self.user_id, workout_date, 'pre_workout')
+
+            if not reminders:
+                logger.info(f"Нет напоминаний за 2 часа для удаления ({workout_date})")
+                return
+
+            deleted_count = 0
+            for reminder in reminders:
+                try:
+                    await self.telegram_bot.delete_message(
+                        chat_id=self.telegram_id,
+                        message_id=reminder.message_id
+                    )
+                    db.mark_reminder_deleted(reminder.id)
+                    deleted_count += 1
+                    logger.info(f"Удалено напоминание за 2 часа message_id={reminder.message_id}")
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить сообщение {reminder.message_id}: {e}")
+
+            logger.info(f"Удалено {deleted_count} напоминаний в время тренировки")
+
+        except Exception as e:
+            logger.error(f"Ошибка удаления напоминаний в время тренировки: {e}", exc_info=True)
 
 
 # Глобальный экземпляр
