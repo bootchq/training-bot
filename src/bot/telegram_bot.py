@@ -123,10 +123,8 @@ class TrainingBot:
         if not credentials:
             # Новый пользователь - запрашиваем регистрацию
             keyboard = [
-                [
-                    InlineKeyboardButton("✅ Есть", callback_data="register_garmin"),
-                    InlineKeyboardButton("❌ Создать", callback_data="no_garmin_account")
-                ]
+                [InlineKeyboardButton("✅ Есть", callback_data="register_garmin")],
+                [InlineKeyboardButton("❌ Создать", callback_data="no_garmin_account")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -972,10 +970,8 @@ class TrainingBot:
         await query.answer()
 
         keyboard = [
-            [
-                InlineKeyboardButton("🏁 К забегу", callback_data="goal_race"),
-                InlineKeyboardButton("🏃 Для себя", callback_data="goal_fitness")
-            ]
+            [InlineKeyboardButton("🏁 К забегу", callback_data="goal_race")],
+            [InlineKeyboardButton("🏃 Для себя", callback_data="goal_fitness")]
         ]
         reply_markup = InlineKeyboardMarkup(keyboard)
 
@@ -1252,11 +1248,9 @@ class TrainingBot:
             else:
                 # Нет истории → спрашиваем уровень
                 keyboard = [
-                    [
-                        InlineKeyboardButton("🟢 Новичок", callback_data="level_onboarding_beginner"),
-                        InlineKeyboardButton("🟡 Средний", callback_data="level_onboarding_intermediate"),
-                        InlineKeyboardButton("🔴 Опытный", callback_data="level_onboarding_advanced")
-                    ]
+                    [InlineKeyboardButton("🟢 Новичок", callback_data="level_onboarding_beginner")],
+                    [InlineKeyboardButton("🟡 Средний", callback_data="level_onboarding_intermediate")],
+                    [InlineKeyboardButton("🔴 Опытный", callback_data="level_onboarding_advanced")]
                 ]
 
                 await query.message.reply_text(
@@ -1905,7 +1899,7 @@ class TrainingBot:
             context.user_data['awaiting_start_time_weekend'] = False
 
             # Завершаем онбординг
-            await self._finish_onboarding(update, context)
+            await self._finish_onboarding(user.id, context, update.message)
             return
 
         logger.info(f"💬 AI-чат от user={telegram_id}: {message_text[:50]}...")
