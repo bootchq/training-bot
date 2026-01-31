@@ -140,6 +140,23 @@ class PersonalRecord(Base):
     )
 
 
+class Reminder(Base):
+    """Напоминания о тренировках (для умного удаления)"""
+    __tablename__ = "reminders"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    date = Column(Date, nullable=False)  # дата тренировки
+    type = Column(String, nullable=False)  # "morning" / "pre_workout" / "sync"
+    message_id = Column(Integer, nullable=False)  # Telegram message_id
+    sent_at = Column(DateTime, default=datetime.utcnow)  # когда отправлено
+    deleted_at = Column(DateTime, nullable=True)  # когда удалено
+
+    __table_args__ = (
+        Index('ix_reminder_user_date', 'user_id', 'date'),
+    )
+
+
 class Database:
     """Менеджер базы данных"""
 
@@ -933,6 +950,7 @@ class Database:
             deleted_wellness = session.query(WellnessSurvey).filter_by(user_id=user.id).delete()
             deleted_goals = session.query(Goal).filter_by(user_id=user.id).delete()
             deleted_records = session.query(PersonalRecord).filter_by(user_id=user.id).delete()
+            deleted_reminders = session.query(Reminder).filter_by(user_id=user.id).delete()
 
             # Сбрасываем всё кроме telegram_id и Garmin credentials (для тестирования)
             # user.garmin_email = None  # СОХРАНЯЕМ для удобства тестирования
@@ -963,9 +981,88 @@ class Database:
             logger.info(
                 f"Пользователь {telegram_id} полностью сброшен: "
                 f"trainings={deleted_trainings}, plans={deleted_plans}, "
-                f"wellness={deleted_wellness}, goals={deleted_goals}, records={deleted_records}"
+                f"wellness={deleted_wellness}, goals={deleted_goals}, records={deleted_records}, "
+                f"reminders={deleted_reminders}"
             )
             return True
+
+    def save_reminder(self, user_id: int, date, reminder_type: str, message_id: int) -> bool:
+        """
+        Сохранить напоминание с message_id для последующего удаления
+
+        Args:
+            user_id: ID пользователя
+            date: Дата тренировки
+            reminder_type: Тип напоминания ("morning" / "pre_workout" / "sync")
+            message_id: Telegram message_id
+
+        Returns:
+            True если успешно
+        """
+        try:
+            with self.get_session() as session:
+                reminder = Reminder(
+                    user_id=user_id,
+                    date=date,
+                    type=reminder_type,
+                    message_id=message_id
+                )
+                session.add(reminder)
+            logger.info(f"Сохранено напоминание {reminder_type} для user_id={user_id}, message_id={message_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Ошибка сохранения напоминания: {e}")
+            return False
+
+    def get_reminders_to_delete(self, user_id: int, date, reminder_type: str = None) -> List[Reminder]:
+        """
+        Получить напоминания для удаления
+
+        Args:
+            user_id: ID пользователя
+            date: Дата тренировки
+            reminder_type: Тип напоминания (опционально)
+
+        Returns:
+            Список напоминаний
+        """
+        try:
+            with self.get_session() as session:
+                query = session.query(Reminder).filter(
+                    Reminder.user_id == user_id,
+                    Reminder.date == date,
+                    Reminder.deleted_at.is_(None)
+                )
+
+                if reminder_type:
+                    query = query.filter(Reminder.type == reminder_type)
+
+                return query.all()
+        except Exception as e:
+            logger.error(f"Ошибка получения напоминаний: {e}")
+            return []
+
+    def mark_reminder_deleted(self, reminder_id: int) -> bool:
+        """
+        Отметить напоминание как удалённое
+
+        Args:
+            reminder_id: ID напоминания
+
+        Returns:
+            True если успешно
+        """
+        try:
+            with self.get_session() as session:
+                reminder = session.query(Reminder).filter_by(id=reminder_id).first()
+                if reminder:
+                    reminder.deleted_at = datetime.utcnow()
+                    logger.info(f"Напоминание {reminder_id} отмечено как удалённое")
+                    return True
+                return False
+        except Exception as e:
+            logger.error(f"Ошибка отметки удаления напоминания: {e}")
+            return False
 
 
 # Глобальный экземпляр БД

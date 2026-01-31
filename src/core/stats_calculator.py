@@ -325,6 +325,180 @@ class StatsCalculator:
 
         return text
 
+    def format_combined_stats(self, stats: Dict[str, Any], period: str = "week") -> str:
+        """
+        Объединённая статистика: километраж + прогресс + тренды
+
+        Args:
+            stats: Словарь со статистикой текущего периода
+            period: Период ("week" или "month")
+
+        Returns:
+            Отформатированная строка
+        """
+        if stats['trainings_count'] == 0:
+            period_ru = "неделю" if period == "week" else "месяц"
+            return f"📊 Статистика\n\n❌ Нет тренировок за {period_ru}"
+
+        period_ru = "Неделя" if period == "week" else "Месяц"
+        text = f"📊 Статистика\n\n"
+        text += f"**[{period_ru}]**\n"
+        text += f"({stats['start_date'].strftime('%d.%m')} - {stats['end_date'].strftime('%d.%m')})\n\n"
+
+        # Километраж
+        text += f"📏 Километраж: **{stats['total_distance']:.1f} км**\n"
+        text += f"🏃 Тренировок: {stats['trainings_count']}\n"
+        text += f"⏱ Время: {stats['total_hours']}ч {stats['total_minutes']}мин\n\n"
+
+        # Прогресс к цели
+        progress_text = self._calculate_goal_progress(stats)
+        if progress_text:
+            text += progress_text + "\n"
+
+        # Тренды (сравнение с предыдущим периодом)
+        trends_text = self._calculate_trends(stats, period)
+        if trends_text:
+            text += "**Тренды:**\n" + trends_text
+
+        return text
+
+    def _calculate_goal_progress(self, stats: Dict[str, Any]) -> str:
+        """
+        Рассчитать прогресс к цели
+
+        Args:
+            stats: Словарь со статистикой
+
+        Returns:
+            Строка с прогрессом или пустая строка
+        """
+        user = db.get_user_by_id(self.user_id)
+        if not user or not user.goal_distance_km or not user.goal_date:
+            return ""
+
+        goal_distance = user.goal_distance_km
+        goal_date = user.goal_date
+        today = date.today()
+
+        # Сколько дней осталось
+        days_left = (goal_date - today).days
+        if days_left < 0:
+            return ""  # Цель уже прошла
+
+        # Прогресс за последние 30 дней
+        month_start = today - timedelta(days=30)
+        monthly_stats = self._calculate_stats(month_start, today, "месяц")
+        current_volume = monthly_stats['total_distance']
+
+        # Рекомендуемый объём для подготовки (примерно 40% от дистанции забега в месяц)
+        recommended_monthly = goal_distance * 0.4
+
+        # Процент выполнения
+        progress_percent = min(100, int((current_volume / recommended_monthly) * 100)) if recommended_monthly > 0 else 0
+
+        # Progress bar
+        filled = int(progress_percent / 10)
+        bar = "█" * filled + "░" * (10 - filled)
+
+        text = f"**Прогресс к цели:** {goal_distance}км ({goal_date.strftime('%d.%m.%Y')})\n"
+        text += f"{bar} {progress_percent}%\n"
+        text += f"Объём за 30 дней: {current_volume:.1f}/{recommended_monthly:.0f} км\n"
+        text += f"До старта: {days_left} дней\n"
+
+        return text
+
+    def _calculate_trends(self, current_stats: Dict[str, Any], period: str) -> str:
+        """
+        Рассчитать тренды (сравнение с предыдущим периодом)
+
+        Args:
+            current_stats: Статистика текущего периода
+            period: Период ("week" или "month")
+
+        Returns:
+            Строка с трендами или пустая строка
+        """
+        if current_stats['trainings_count'] == 0:
+            return ""
+
+        # Получаем предыдущий период
+        if period == "week":
+            prev_end = current_stats['start_date'] - timedelta(days=1)
+            prev_start = prev_end - timedelta(days=7)
+        else:  # month
+            prev_end = current_stats['start_date'] - timedelta(days=1)
+            prev_start = prev_end - timedelta(days=30)
+
+        prev_stats = self._calculate_stats(prev_start, prev_end, "предыдущий")
+
+        if prev_stats['trainings_count'] == 0:
+            return ""  # Нет данных для сравнения
+
+        text = ""
+
+        # Средний темп
+        current_pace = self._calculate_avg_pace(current_stats['trainings'])
+        prev_pace = self._calculate_avg_pace(prev_stats['trainings'])
+
+        if current_pace and prev_pace:
+            pace_diff_seconds = self._pace_to_seconds(current_pace) - self._pace_to_seconds(prev_pace)
+            pace_emoji = "↗️" if pace_diff_seconds < 0 else "↘️"
+            pace_sign = "-" if pace_diff_seconds < 0 else "+"
+            text += f"  ⚡ Темп: {prev_pace} → {current_pace} ({pace_sign}{abs(pace_diff_seconds)}сек/км) {pace_emoji}\n"
+
+        # Средний пульс
+        if current_stats['avg_hr'] and prev_stats['avg_hr']:
+            hr_diff = int(current_stats['avg_hr']) - int(prev_stats['avg_hr'])
+            hr_emoji = "↘️" if hr_diff < 0 else "↗️"
+            hr_sign = "" if hr_diff < 0 else "+"
+            text += f"  💓 Ср. пульс: {int(prev_stats['avg_hr'])} → {int(current_stats['avg_hr'])} ({hr_sign}{hr_diff}) {hr_emoji}\n"
+
+        # Калории (примерная оценка: 65 ккал на км)
+        current_calories = int(current_stats['total_distance'] * 65)
+        prev_calories = int(prev_stats['total_distance'] * 65)
+        text += f"  🔥 Калории: {current_calories} ккал\n"
+
+        return text
+
+    def _calculate_avg_pace(self, trainings: List[Training]) -> str:
+        """
+        Рассчитать средний темп
+
+        Args:
+            trainings: Список тренировок
+
+        Returns:
+            Средний темп в формате "5:30" или None
+        """
+        pace_seconds_list = []
+        for t in trainings:
+            if t.avg_pace:
+                pace_seconds_list.append(self._pace_to_seconds(t.avg_pace))
+
+        if not pace_seconds_list:
+            return None
+
+        avg_seconds = sum(pace_seconds_list) / len(pace_seconds_list)
+        minutes = int(avg_seconds // 60)
+        seconds = int(avg_seconds % 60)
+        return f"{minutes}:{seconds:02d}"
+
+    def _pace_to_seconds(self, pace_str: str) -> float:
+        """
+        Конвертировать темп из строки в секунды
+
+        Args:
+            pace_str: Темп в формате "5:30"
+
+        Returns:
+            Темп в секундах
+        """
+        try:
+            parts = pace_str.split(':')
+            return int(parts[0]) * 60 + int(parts[1])
+        except:
+            return 0.0
+
 
 def create_stats_calculator(user_id: int) -> StatsCalculator:
     """Создать калькулятор статистики"""

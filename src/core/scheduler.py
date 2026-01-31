@@ -57,12 +57,30 @@ class TrainingScheduler:
             replace_existing=True
         )
 
-        # Задача в 07:00 - утреннее напоминание о тренировке
+        # Задача в 09:00 - утреннее напоминание о тренировке
         self.scheduler.add_job(
             self.morning_reminder,
-            trigger=CronTrigger(hour=7, minute=0),
+            trigger=CronTrigger(hour=9, minute=0),
             id='morning_reminder',
             name='Утреннее напоминание о тренировке',
+            replace_existing=True
+        )
+
+        # Задача в 12:00 - удаление утреннего напоминания
+        self.scheduler.add_job(
+            self.delete_morning_reminders,
+            trigger=CronTrigger(hour=12, minute=0),
+            id='delete_morning',
+            name='Удаление утренних напоминаний',
+            replace_existing=True
+        )
+
+        # Задача в 21:00 - напоминание о синхронизации Garmin
+        self.scheduler.add_job(
+            self.sync_reminder,
+            trigger=CronTrigger(hour=21, minute=0),
+            id='sync_reminder',
+            name='Напоминание о синхронизации Garmin',
             replace_existing=True
         )
 
@@ -76,7 +94,7 @@ class TrainingScheduler:
         )
 
         self.scheduler.start()
-        logger.info("Планировщик запущен (00:00 - анализ, 01:00 - план, 07:00 - напоминание, вс 20:00 - итоги)")
+        logger.info("Планировщик запущен (00:00 - анализ, 01:00 - план, 09:00 - напоминание, 12:00 - удаление, 21:00 - синхронизация, вс 20:00 - итоги)")
 
     def stop(self):
         """Остановка планировщика"""
@@ -244,7 +262,7 @@ class TrainingScheduler:
 
 
     async def morning_reminder(self):
-        """Утреннее напоминание о тренировке (07:00)"""
+        """Утреннее напоминание о тренировке (09:00)"""
         try:
             if not self.telegram_bot:
                 return
@@ -263,6 +281,13 @@ class TrainingScheduler:
                 logger.info(f"Напоминание: сегодня ({today}) нет тренировки")
                 return
 
+            # Получаем время тренировки из настроек пользователя
+            user = db.get_user_by_id(self.user_id)
+            workout_time = None
+            if user:
+                is_weekend = today.weekday() >= 5  # Суббота=5, Воскресенье=6
+                workout_time = user.start_time_weekend if is_weekend else user.start_time_weekday
+
             # Форматируем напоминание
             emoji_map = {
                 'длинная': '🏃‍♂️',
@@ -280,7 +305,10 @@ class TrainingScheduler:
                     emoji = e
                     break
 
-            text = f"{emoji} **Сегодня тренировка!**\n\n"
+            text = f"{emoji} **Сегодня тренировка"
+            if workout_time:
+                text += f" в {workout_time}"
+            text += "!**\n\n"
             text += f"**{today_plan.type.upper()}**\n"
 
             if today_plan.duration_min:
@@ -295,13 +323,17 @@ class TrainingScheduler:
 
             text += "\n\n💪 Удачной тренировки!"
 
-            await self.telegram_bot.send_message(
+            # Отправляем сообщение и сохраняем message_id
+            message = await self.telegram_bot.send_message(
                 chat_id=self.telegram_id,
                 text=text,
                 parse_mode='Markdown'
             )
 
-            logger.info(f"Утреннее напоминание отправлено: {today_plan.type}")
+            # Сохраняем message_id для последующего удаления
+            db.save_reminder(self.user_id, today, 'morning', message.message_id)
+
+            logger.info(f"Утреннее напоминание отправлено: {today_plan.type}, message_id={message.message_id}")
 
         except Exception as e:
             logger.error(f"Ошибка утреннего напоминания: {e}", exc_info=True)
@@ -383,6 +415,87 @@ class TrainingScheduler:
 
         except Exception as e:
             logger.error(f"Ошибка еженедельного анализа: {e}", exc_info=True)
+
+    async def delete_morning_reminders(self):
+        """Удаление утренних напоминаний (12:00)"""
+        try:
+            if not self.telegram_bot:
+                return
+
+            today = time_utils.today()
+
+            # Получаем все утренние напоминания за сегодня
+            reminders = db.get_reminders_to_delete(self.user_id, today, 'morning')
+
+            if not reminders:
+                logger.info(f"Нет утренних напоминаний для удаления за {today}")
+                return
+
+            deleted_count = 0
+            for reminder in reminders:
+                try:
+                    await self.telegram_bot.delete_message(
+                        chat_id=self.telegram_id,
+                        message_id=reminder.message_id
+                    )
+                    db.mark_reminder_deleted(reminder.id)
+                    deleted_count += 1
+                    logger.info(f"Удалено утреннее напоминание message_id={reminder.message_id}")
+                except Exception as e:
+                    logger.warning(f"Не удалось удалить сообщение {reminder.message_id}: {e}")
+
+            logger.info(f"Удалено {deleted_count} утренних напоминаний")
+
+        except Exception as e:
+            logger.error(f"Ошибка удаления утренних напоминаний: {e}", exc_info=True)
+
+    async def sync_reminder(self):
+        """Напоминание о синхронизации Garmin (21:00)"""
+        try:
+            if not self.telegram_bot:
+                return
+
+            today = time_utils.today()
+
+            # Проверяем был ли план на сегодня
+            plans = db.get_plan_for_week(self.user_id, today)
+            today_plan = None
+            for plan in plans:
+                if plan.date == today:
+                    today_plan = plan
+                    break
+
+            if not today_plan:
+                logger.info(f"Напоминание о синхронизации: сегодня ({today}) не было тренировки")
+                return
+
+            # Проверяем есть ли данные в Garmin за сегодня
+            training = db.get_training_for_date(self.user_id, today)
+
+            if training and training.type == 'actual':
+                logger.info(f"Тренировка за {today} уже синхронизирована, напоминание не нужно")
+                return
+
+            # Отправляем напоминание
+            text = (
+                "📲 **Напоминание о синхронизации**\n\n"
+                "Сегодня была запланирована тренировка, но данных в Garmin нет.\n\n"
+                "Не забудь синхронизировать часы с телефоном!"
+            )
+
+            message = await self.telegram_bot.send_message(
+                chat_id=self.telegram_id,
+                text=text,
+                parse_mode='Markdown'
+            )
+
+            # Сохраняем message_id
+            db.save_reminder(self.user_id, today, 'sync', message.message_id)
+
+            logger.info(f"Напоминание о синхронизации отправлено, message_id={message.message_id}")
+
+        except Exception as e:
+            logger.error(f"Ошибка напоминания о синхронизации: {e}", exc_info=True)
 
 
 # Глобальный экземпляр

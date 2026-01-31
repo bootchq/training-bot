@@ -440,30 +440,30 @@ class TrainingBot:
 
         period = query.data.replace("stats_", "")  # week или month
 
+        # Получаем статистику и форматируем объединённо
         if period == "month":
-            # Месяц - общая информация одним сообщением
             stats = calculator.get_month_stats()
-            stats_text = calculator.format_month_stats_summary(stats)
-            await query.edit_message_text(stats_text, parse_mode='Markdown')
-            logger.info(f"Пользователь {telegram_id} запросил статистику за месяц")
-
+            stats_text = calculator.format_combined_stats(stats, period="month")
         else:  # week
-            # Неделя - каждая тренировка отдельным сообщением
             stats = calculator.get_week_stats()
-            messages = calculator.format_week_stats_separate(stats)
+            stats_text = calculator.format_combined_stats(stats, period="week")
 
-            # Удаляем сообщение с кнопками
-            await query.delete_message()
+        # Добавляем кнопки переключения периода
+        keyboard = [
+            [
+                InlineKeyboardButton("📅 Неделя", callback_data="stats_week"),
+                InlineKeyboardButton("📅 Месяц", callback_data="stats_month")
+            ]
+        ]
+        reply_markup = InlineKeyboardMarkup(keyboard)
 
-            # Отправляем все сообщения
-            for msg in messages:
-                await context.bot.send_message(
-                    chat_id=telegram_id,
-                    text=msg,
-                    parse_mode='Markdown'
-                )
+        await query.edit_message_text(
+            stats_text,
+            parse_mode='Markdown',
+            reply_markup=reply_markup
+        )
 
-            logger.info(f"Пользователь {telegram_id} запросил статистику за неделю")
+        logger.info(f"Пользователь {telegram_id} запросил объединённую статистику за {period}")
 
     async def handle_next_3_trainings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка кнопки 'Следующие 3 тренировки'"""
