@@ -1,11 +1,13 @@
 """Точка входа приложения"""
-import sys
+# КРИТИЧНО: Устанавливаем таймзону MSK ПЕРЕД всеми импортами
 import os
+import time
+os.environ['TZ'] = 'Europe/Moscow'
+time.tzset()  # Применяем изменение таймзоны
+
+import sys
 import asyncio
 from pathlib import Path
-
-# КРИТИЧНО: Устанавливаем таймзону MSK для всего приложения
-os.environ['TZ'] = 'Europe/Moscow'
 
 # Добавляем корневую папку в PYTHONPATH
 sys.path.insert(0, str(Path(__file__).parent))
