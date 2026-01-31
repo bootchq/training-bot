@@ -32,7 +32,7 @@ python3 tests/telethon_auto_test.py
 
 **Следующие запуски** → всё автоматически!
 
-**Подробная инструкция:** [КАК_ПОЛУЧИТЬ_API_CREDENTIALS.md](../КАК_ПОЛУЧИТЬ_API_CREDENTIALS.md)
+**Подробная инструкция:** [КАК_ПОЛУЧИТЬ_API_CREDENTIALS.md](../../Документация/{bot-trainer} {guide} Получение API credentials.md)
 
 ---
 
