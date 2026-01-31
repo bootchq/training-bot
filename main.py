@@ -4,6 +4,9 @@ import os
 import asyncio
 from pathlib import Path
 
+# КРИТИЧНО: Устанавливаем таймзону MSK для всего приложения
+os.environ['TZ'] = 'Europe/Moscow'
+
 # Добавляем корневую папку в PYTHONPATH
 sys.path.insert(0, str(Path(__file__).parent))
 
