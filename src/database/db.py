@@ -181,6 +181,10 @@ class Database:
             database_url = f"sqlite:///{db_path}"
             self.is_postgres = False
 
+        # Конвертация URL для psycopg3
+        if self.is_postgres and database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
         self.engine = create_engine(database_url, echo=False)
         self.SessionLocal = sessionmaker(bind=self.engine)
 
