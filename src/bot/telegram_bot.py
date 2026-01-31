@@ -816,7 +816,8 @@ class TrainingBot:
         except:
             pass
 
-        await update.message.reply_text(
+        # Отправляем сообщение о начале синхронизации и сохраняем его
+        status_message = await update.message.reply_text(
             "✅ Регистрация завершена!\n\n"
             "Теперь я могу автоматически синхронизировать твои тренировки с Garmin.\n\n"
             "Синхронизирую твои последние тренировки...\n"
@@ -857,16 +858,34 @@ class TrainingBot:
                     result_lines.append(f"- VDOT: {vdot:.0f} (темпы рассчитаны по {vdot_source})")
                 result_lines.append("\nТвой план будет персонализирован!")
 
-            await update.message.reply_text("\n".join(result_lines), parse_mode='Markdown')
+            # Добавляем призыв к действию
+            result_lines.append("\n▶️ Настроим план тренировок")
 
-            # Показываем темпы если есть VDOT
+            # Кнопки для следующего шага (в одну строку)
+            keyboard = [
+                [
+                    InlineKeyboardButton("📅 Календарь", callback_data="setup_google_calendar"),
+                    InlineKeyboardButton("⏭ Настройка", callback_data="start_onboarding")
+                ]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            # Редактируем сообщение с результатом + кнопками
+            await status_message.edit_text(
+                "\n".join(result_lines),
+                parse_mode='Markdown',
+                reply_markup=reply_markup
+            )
+
+            # Показываем темпы если есть VDOT (отдельным сообщением)
             if vdot and vdot_source and vdot_time:
                 summary = format_vdot_summary(vdot, vdot_source, vdot_time)
                 await update.message.reply_text(summary, parse_mode='Markdown')
 
         except Exception as e:
             logger.error(f"Ошибка первой синхронизации: {e}")
-            await update.message.reply_text(
+            # Редактируем сообщение с ошибкой
+            await status_message.edit_text(
                 "⚠️ Не удалось синхронизировать тренировки.\n\n"
                 "Проверь правильность логина/пароля и попробуй /sync"
             )
@@ -876,21 +895,6 @@ class TrainingBot:
             user_scheduler = TrainingScheduler(telegram_bot=self.app.bot)
             user_scheduler.start(user.id, telegram_id)
             self.user_schedulers[user.id] = user_scheduler
-
-        # Предлагаем подключить Google Calendar или перейти к настройке тренировок
-        keyboard = [
-            [InlineKeyboardButton("📅 Подключить календарь", callback_data="setup_google_calendar")],
-            [InlineKeyboardButton("⏭ Настроить тренировки", callback_data="start_onboarding")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-
-        await update.message.reply_text(
-            "🎉 Регистрация Garmin завершена!\n\n"
-            "Теперь настроим план тренировок.\n\n"
-            "Хочешь сначала подключить календарь для напоминаний?",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
 
         logger.info(f"Пользователь {telegram_id} завершил регистрацию Garmin")
         return ConversationHandler.END
