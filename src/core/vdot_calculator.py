@@ -1,15 +1,40 @@
 """
 Калькулятор VDOT по методологии Jack Daniels
 
-VDOT — это индекс беговой формы, позволяющий рассчитать оптимальные
-тренировочные темпы на основе результата на любой дистанции.
+=== ЧТО ТАКОЕ VDOT ===
+VDOT — "эффективный VO2max", учитывающий экономичность бега.
+Позволяет рассчитать оптимальные тренировочные темпы по результату забега.
 
-Источник: Jack Daniels "Daniels' Running Formula"
+Источник: Jack Daniels "Daniels' Running Formula" (4th ed, 2021)
+Официальный калькулятор: https://vdoto2.com/calculator
+
+=== 5 ЗОН ТЕМПОВ ===
+- E (Easy): 65-79% HRmax — восстановление, длительные, аэробная база
+- M (Marathon): целевой темп марафона — специфичность
+- T (Threshold): "комфортно тяжело" — развитие порога, ~60 мин удержания
+- I (Interval): 97-100% VO2max — 3-5 мин интервалы, развитие VO2max
+- R (Repetition): быстрее 5k — нейромышечная работа, экономичность
+
+=== ТАБЛИЦА VDOT ===
+- Диапазон: 30-70 (любители: 30-50, продвинутые: 45-60, элита: 60-70+)
+- Интерполяция для точных значений между табличными
+
+=== ПЕРЕСЧЁТ VDOT ===
+- Обновлять каждые 4-8 недель
+- После PR или хорошего забега
+- VDOT растёт с ростом формы
+
+=== ПРИМЕРЫ ===
+- VDOT 40: 10k за 48:30, марафон за 3:49
+- VDOT 45: 10k за 43:15, марафон за 3:23
+- VDOT 50: 10k за 38:45, марафон за 3:01
+- VDOT 55: 10k за 35:00, марафон за 2:44
 """
-from typing import Dict
-from typing import Optional
-from typing import Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
+from sqlalchemy import and_
+
+from ..database.db import db, Training
 from ..utils.logger import logger
 
 # Таблица VDOT: время в секундах для каждой дистанции
@@ -294,6 +319,78 @@ def get_predicted_times(vdot: float) -> Dict[str, str]:
         'half': format_time(times['half']),
         'marathon': format_time(times['marathon']),
     }
+
+
+def find_best_times_from_trainings(user_id: int) -> Dict[str, Dict[str, Any]]:
+    """
+    Найти лучшие времена на дистанциях из истории тренировок в БД.
+
+    Ищет обычные тренировки (не только официальные PR):
+    - 10 км: тренировки 9.5-10.5 км
+    - Полумарафон: тренировки 20-22 км
+
+    Args:
+        user_id: ID пользователя
+
+    Returns:
+        {"10k": {"time_seconds": 3420, "distance_km": 10.2, "date": ...}, ...}
+    """
+    records = {}
+
+    # Диапазоны дистанций для поиска
+    distance_ranges = {
+        '10k': (9.5, 10.5),
+        'half': (20.0, 22.0),
+    }
+
+    with db.get_session() as session:
+        for dist_key, (min_km, max_km) in distance_ranges.items():
+            # Ищем тренировки в диапазоне дистанции с валидным временем
+            trainings = session.query(
+                Training.distance_km,
+                Training.duration_min,
+                Training.date
+            ).filter(
+                Training.user_id == user_id,
+                Training.type == 'actual',
+                Training.distance_km >= min_km,
+                Training.distance_km <= max_km,
+                Training.duration_min.isnot(None),
+                Training.duration_min > 0
+            ).all()
+
+            if not trainings:
+                continue
+
+            # Находим лучшее время (нормализуем к точной дистанции)
+            best_time = None
+            best_training = None
+
+            for t in trainings:
+                # Время в секундах
+                time_sec = t.duration_min * 60
+
+                # Нормализуем к точной дистанции (10 км или 21.1 км)
+                target_km = 10.0 if dist_key == '10k' else 21.1
+                normalized_time = (time_sec / t.distance_km) * target_km
+
+                if best_time is None or normalized_time < best_time:
+                    best_time = normalized_time
+                    best_training = t
+
+            if best_training:
+                records[dist_key] = {
+                    'time_seconds': int(best_time),
+                    'distance_km': best_training.distance_km,
+                    'date': best_training.date
+                }
+                logger.info(
+                    f"User {user_id}: лучшее время {dist_key} = "
+                    f"{format_time(int(best_time))} "
+                    f"(из тренировки {best_training.distance_km:.1f} км)"
+                )
+
+    return records
 
 
 def format_vdot_summary(vdot: float, source: str, time_seconds: int) -> str:
