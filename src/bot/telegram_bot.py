@@ -152,6 +152,22 @@ class TrainingBot:
             logger.info(f"Новый пользователь {telegram_id}, запрос регистрации Garmin")
             return
 
+        # Проверяем прошёл ли онбординг
+        if not user.onboarding_completed:
+            # Есть Garmin, но онбординг не пройден — запускаем онбординг
+            keyboard = [
+                [InlineKeyboardButton("🎯 Настроить тренировки", callback_data="start_onboarding")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                "🏃 С возвращением!\n\n"
+                "Давай настроим твои тренировки под твои цели.",
+                reply_markup=reply_markup
+            )
+            logger.info(f"Пользователь {telegram_id} — онбординг не завершён, предлагаем настройку")
+            return
+
         # Запускаем scheduler для пользователя
         if user.id not in self.user_schedulers:
             user_scheduler = TrainingScheduler(telegram_bot=self.app.bot)
@@ -285,122 +301,34 @@ class TrainingBot:
 
     async def sync(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /sync - ручная синхронизация с Garmin"""
-
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
-        # Проверяем есть ли credentials
-        credentials = db.get_user_garmin_credentials(user.id)
-        if not credentials:
-            await update.message.reply_text(
-                "❌ Учетные данные Garmin не найдены.\n\n"
-                "Используй /start для регистрации"
-            )
-            return
+        # Единый метод синхронизации (UX: "Подожди 2-5 минут" → редактирование)
+        total_count = await self._sync_with_status(telegram_id, update.message, context, is_registration=False)
 
-        # Получаем текущий VDOT для сравнения
-        old_settings = db.get_user_settings(user.id)
-        old_vdot = old_settings.get('vdot') if old_settings else None
+        # AI-анализ последней тренировки (только если были загружены тренировки)
+        if total_count and total_count > 0:
+            latest_training = db.get_latest_training(user.id)
+            if latest_training:
+                await update.message.reply_text("🤖 Анализирую последнюю тренировку...")
 
-        await update.message.reply_text("📥 Синхронизирую тренировки за последние 60 дней + физиологические данные...")
+                user_goal = db.get_user_settings(user.id)
+                analyzer = get_training_analyzer()
+                analysis = analyzer.analyze_training(latest_training, user_goal)
 
-        try:
-            # Авторизуемся в Garmin
-            email, password = credentials
-            if not garmin_sync.login(email, password):
-                await update.message.reply_text("❌ Не удалось авторизоваться в Garmin")
-                return
+                await update.message.reply_text(f"📊 Анализ тренировки:\n\n{analysis}")
 
-            # Синхронизируем 60 дней + LTHR + Personal Records
-            total_count, lthr, personal_records = garmin_sync.sync_last_60_days(user.id)
+                # Проверяем персональные рекорды
+                records_manager = create_records_manager(user.id)
+                new_records = records_manager.check_training_for_records(latest_training)
 
-            # Рассчитываем VDOT по персональным рекордам
-            vdot, vdot_source, vdot_time = calculate_best_vdot(personal_records) if personal_records else (None, None, None)
-
-            # Сохраняем физиологические данные
-            if lthr or vdot:
-                db.save_user_physiology(
-                    user.id,
-                    lthr=lthr,
-                    vdot=vdot,
-                    vdot_source=vdot_source,
-                    vdot_time_seconds=vdot_time
-                )
-
-            # Формируем ответ пользователю
-            result_lines = []
-            if total_count > 0:
-                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней                    ")
-            else:
-                result_lines.append("ℹ️ Новых тренировок не найдено                                    ")
-
-            if lthr:
-                result_lines.append("\n**Физиологические данные:**                                      ")
-                result_lines.append(f"- LTHR: {lthr} уд/мин                                                ")
-
-            # Проверяем рост VDOT
-            vdot_changed = False
-            if vdot:
-                if old_vdot and vdot > old_vdot:
-                    delta = vdot - old_vdot
-                    result_lines.append(f"- VDOT: {vdot:.0f} (было {old_vdot:.0f}, **+{delta:.1f}**)                ")
-                    vdot_changed = True
-                else:
-                    result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})                              ")
-
-            await update.message.reply_text("\n".join(result_lines), parse_mode='Markdown')
-
-            # Если VDOT вырос — показываем обновлённые темпы
-            if vdot_changed:
-                from ..core.vdot_calculator import get_training_paces
-                paces = get_training_paces(vdot)
-                if paces:
-                    pace_text = "🚀 **Темпы пересчитаны!**\n\n"
-                    pace_text += f"• Easy: {paces.get('E', 'N/A')}\n"
-                    pace_text += f"• Threshold: {paces.get('T', 'N/A')}\n"
-                    pace_text += f"• Interval: {paces.get('I', 'N/A')}\n"
-                    pace_text += "\nНовые темпы применяются к будущим тренировкам"
-                    await update.message.reply_text(pace_text, parse_mode='Markdown')
-
-            # Если VDOT новый (не было раньше), показываем саммари
-            elif vdot and vdot_source and vdot_time and not old_vdot:
-                summary = format_vdot_summary(vdot, vdot_source, vdot_time)
-                await update.message.reply_text(summary, parse_mode='Markdown')
-
-            if total_count > 0:
-
-                # AI-анализ последней тренировки
-                latest_training = db.get_latest_training(user.id)
-                if latest_training:
-                    await update.message.reply_text("🤖 Анализирую последнюю тренировку...")
-
-                    # Получаем цель пользователя для контекста
-                    user_goal = db.get_user_settings(user.id)
-
-                    # Запрашиваем AI-анализ
-                    analyzer = get_training_analyzer()
-                    analysis = analyzer.analyze_training(latest_training, user_goal)
-
-                    await update.message.reply_text(f"📊 Анализ тренировки:\n\n{analysis}")
-
-                    # Проверяем персональные рекорды
-                    records_manager = create_records_manager(user.id)
-                    new_records = records_manager.check_training_for_records(latest_training)
-
-                    if new_records:
-                        records_text = "🏆 Новый персональный рекорд!\n\n"
-                        for record in new_records:
-                            records_text += f"{record['name']}: {record['value']} {record['unit']}\n"
-                        records_text += "\nПоздравляю! Продолжай в том же духе! 💪"
-                        await update.message.reply_text(records_text)
-            else:
-                await update.message.reply_text("ℹ️ Новых тренировок за последние 14 дней не найдено")
-        except Exception as e:
-            logger.error(f"Ошибка синхронизации для {telegram_id}: {e}")
-            await update.message.reply_text(
-                "❌ Ошибка синхронизации с Garmin.\n\n"
-                "Проверь правильность логина/пароля в настройках аккаунта Garmin"
-            )
+                if new_records:
+                    records_text = "🏆 Новый персональный рекорд!\n\n"
+                    for record in new_records:
+                        records_text += f"{record['name']}: {record['value']} {record['unit']}\n"
+                    records_text += "\nПоздравляю! Продолжай в том же духе!"
+                    await update.message.reply_text(records_text)
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - выбор периода статистики"""
@@ -910,88 +838,9 @@ class TrainingBot:
         except Exception:
             pass
 
-        # Отправляем сообщение о начале синхронизации и сохраняем его
-        status_message = await update.message.reply_text(
-            "✅ Регистрация завершена!\n\n"
-            "Теперь я могу автоматически синхронизировать твои тренировки с Garmin.\n\n"
-            "Синхронизирую твои последние тренировки...\n"
-            "Подожди 2-5 минут ⏳"
-        )
-
-        # Запускаем первую синхронизацию (60 дней + LTHR + VDOT)
+        # Единый метод синхронизации (UX: "Подожди 2-5 минут" → редактирование)
         user = db.get_or_create_user(telegram_id)
-        try:
-            # ✅ Авторизуемся с credentials нового пользователя
-            if not garmin_sync.login(email, password):
-                await status_message.edit_text(
-                    "❌ Не удалось авторизоваться в Garmin.\n\n"
-                    "Проверь правильность email и пароля.\n\n"
-                    "Используй /start для повторной попытки"
-                )
-                return ConversationHandler.END
-
-            # Синхронизируем 60 дней + получаем физиологические данные
-            total_count, lthr, personal_records = garmin_sync.sync_last_60_days(user.id)
-
-            # Рассчитываем VDOT
-            vdot, vdot_source, vdot_time = calculate_best_vdot(personal_records) if personal_records else (None, None, None)
-
-            # Сохраняем физиологические данные
-            if lthr or vdot:
-                db.save_user_physiology(
-                    user.id,
-                    lthr=lthr,
-                    vdot=vdot,
-                    vdot_source=vdot_source,
-                    vdot_time_seconds=vdot_time
-                )
-
-            # Формируем ответ
-            result_lines = []
-            if total_count > 0:
-                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней                    ")
-            else:
-                result_lines.append("ℹ️ Тренировок за последние 60 дней не найдено          ")
-
-            if lthr or vdot:
-                result_lines.append("\n**Персонализация:**                                      ")
-                if lthr:
-                    result_lines.append(f"- LTHR: {lthr} уд/мин (зоны пульса рассчитаны)                ")
-                if vdot:
-                    result_lines.append(f"- VDOT: {vdot:.0f} (темпы рассчитаны по {vdot_source})              ")
-                result_lines.append("\nТвой план будет персонализирован!                        ")
-
-            # Добавляем призыв к действию
-            result_lines.append("\n▶️ Настроим план тренировок                              ")
-
-            # Кнопки для следующего шага (в одну строку)
-            keyboard = [
-                [
-                    InlineKeyboardButton("📅 Календарь", callback_data="setup_google_calendar"),
-                    InlineKeyboardButton("⏭ Настройка", callback_data="start_onboarding")
-                ]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            # Редактируем сообщение с результатом + кнопками
-            await status_message.edit_text(
-                "\n".join(result_lines),
-                parse_mode='Markdown',
-                reply_markup=reply_markup
-            )
-
-            # Показываем темпы если есть VDOT (отдельным сообщением)
-            if vdot and vdot_source and vdot_time:
-                summary = format_vdot_summary(vdot, vdot_source, vdot_time)
-                await update.message.reply_text(summary, parse_mode='Markdown')
-
-        except Exception as e:
-            logger.error(f"Ошибка первой синхронизации: {e}")
-            # Редактируем сообщение с ошибкой
-            await status_message.edit_text(
-                "⚠️ Не удалось синхронизировать тренировки.\n\n"
-                "Проверь правильность логина/пароля и попробуй /sync"
-            )
+        await self._sync_with_status(telegram_id, update.message, context, is_registration=True)
 
         # Запускаем scheduler для пользователя
         if user.id not in self.user_schedulers:
@@ -1331,22 +1180,32 @@ class TrainingBot:
             goal_type = context.user_data.get('goal_type', 'fitness')
             db.save_user_goal(user.id, goal_type=goal_type, training_days=[f"day_{d}" for d in selected_days])
 
-            # Проверяем есть ли история тренировок за последний месяц
-            calculator = StatsCalculator(user.id)
-            stats = calculator.get_month_stats()
+            # Пробуем автоопределить уровень по данным Garmin
+            from ..core.fitness_detector import detect_fitness_level
 
-            if stats['trainings_count'] > 0:
-                # Есть история → не спрашиваем уровень, сразу время
+            detected_level, level_stats = detect_fitness_level(user.id)
+
+            if detected_level:
+                # Уровень определён — сохраняем и переходим к времени
+                db.save_user_goal(user.id, fitness_level=detected_level)
+                context.user_data['fitness_level'] = detected_level
+
+                level_names = {"beginner": "Новичок", "intermediate": "Средний", "advanced": "Опытный"}
+                level_display = level_names.get(detected_level, detected_level)
+
                 await query.message.reply_text(
-                    f"✅ Вижу у тебя есть история тренировок ({stats['trainings_count']} за месяц)\n"
-                    f"Автоматически определю уровень подготовки\n\n"
+                    f"📊 По твоим данным из Garmin:\n"
+                    f"• Стаж бега: {level_stats.get('running_months', '?')} месяцев\n"
+                    f"• Объём: ~{level_stats.get('weekly_distance_km', '?')} км/нед\n\n"
+                    f"✅ Определил уровень: **{level_display}**\n\n"
                     "⏱ Сколько времени у тебя на одну тренировку?\n\n"
                     "Напиши в минутах (например: 60, 90, 120)\n"
-                    "Или диапазон времени (например: с 19 до 21)"
+                    "Или диапазон времени (например: с 19 до 21)",
+                    parse_mode='Markdown'
                 )
                 context.user_data['awaiting_time'] = True
             else:
-                # Нет истории → спрашиваем уровень
+                # Мало данных → спрашиваем уровень вручную
                 keyboard = [
                     [InlineKeyboardButton("🟢 Новичок в беге        ", callback_data="level_onboarding_beginner")],
                     [InlineKeyboardButton("🟡 Средний уровень       ", callback_data="level_onboarding_intermediate")],
@@ -1354,9 +1213,9 @@ class TrainingBot:
                 ]
 
                 await query.message.reply_text(
-                    "🏃 Какой у тебя опыт в беге?                                 \n\n"
-                    "Нет истории тренировок, поэтому спрашиваю.                   \n"
-                    "Это нужно чтобы подобрать правильный объём и интенсивность тренировок                    ",
+                    "🏃 Какой у тебя опыт в беге?\n\n"
+                    "Недостаточно данных в Garmin для автоматического определения.\n"
+                    "Это нужно чтобы подобрать правильный объём и интенсивность.",
                     reply_markup=InlineKeyboardMarkup(keyboard)
                 )
             return
@@ -1626,10 +1485,11 @@ class TrainingBot:
         plans = db.get_plan_for_week(user.id, start_of_week)
 
         if not plans:
+            # Используем generic цели вместо hard-coded
             keyboard = [
-                [InlineKeyboardButton("📅 Тарки-Тау 50км (15 фев)", callback_data="plan_tarki")],
-                [InlineKeyboardButton("🏃 Марафон 42км (15 мар)", callback_data="plan_marathon")],
-                [InlineKeyboardButton("⛰ DWT 65км (15 апр)", callback_data="plan_dwt")]
+                [InlineKeyboardButton("🏃 Полумарафон 21км", callback_data="plan_half")],
+                [InlineKeyboardButton("🏃 Марафон 42км", callback_data="plan_marathon")],
+                [InlineKeyboardButton("⛰ Трейл 50км", callback_data="plan_trail50")]
             ]
             reply_markup = InlineKeyboardMarkup(keyboard)
             await message.reply_text(
@@ -1674,8 +1534,16 @@ class TrainingBot:
         logger.info(f"Пользователь {telegram_id} запросил план")
 
     async def _handle_sync(self, telegram_id: int, message, context):
-        """Внутренняя логика синхронизации"""
-        from datetime import timedelta
+        """Внутренняя логика синхронизации — делегирует в _sync_with_status"""
+        await self._sync_with_status(telegram_id, message, context, is_registration=False)
+
+    async def _sync_with_status(self, telegram_id: int, message, context, is_registration: bool = False):
+        """
+        Единый метод синхронизации с Garmin.
+        UX: сообщение "Подожди 2-5 минут" → редактирование на результат.
+        Полная синхронизация: 60 дней + VDOT + LTHR.
+        """
+        from ..core.vdot_calculator import calculate_best_vdot, format_vdot_summary, get_training_paces
 
         user = db.get_or_create_user(telegram_id)
         credentials = db.get_user_garmin_credentials(user.id)
@@ -1687,25 +1555,127 @@ class TrainingBot:
             )
             return
 
-        await message.reply_text("📥 Синхронизирую тренировки за последние 60 дней...                    ")
+        # Получаем текущий VDOT для сравнения
+        old_settings = db.get_user_settings(user.id)
+        old_vdot = old_settings.get('vdot') if old_settings else None
+
+        # Отправляем сообщение и сохраняем для редактирования
+        if is_registration:
+            status_message = await message.reply_text(
+                "✅ Регистрация завершена!\n\n"
+                "Синхронизирую твои тренировки...\n"
+                "Подожди 2-5 минут ⏳"
+            )
+        else:
+            status_message = await message.reply_text(
+                "📥 Синхронизирую тренировки за последние 60 дней...\n"
+                "Подожди 2-5 минут ⏳"
+            )
 
         try:
-            total_count = 0
-            today = time_utils.today()
-            for i in range(60):
-                sync_date = today - timedelta(days=i)
-                count = garmin_sync.sync_date_for_user(user.id, sync_date)
-                total_count += count
+            # Авторизуемся в Garmin
+            email, password = credentials
+            if not garmin_sync.login(email, password):
+                await status_message.edit_text(
+                    "❌ Не удалось авторизоваться в Garmin.\n\n"
+                    "Проверь правильность логина/пароля"
+                )
+                return
 
+            # Полная синхронизация: 60 дней + LTHR + Personal Records
+            total_count, lthr, personal_records = garmin_sync.sync_last_60_days(user.id)
+
+            # Рассчитываем VDOT по персональным рекордам
+            vdot, vdot_source, vdot_time = calculate_best_vdot(personal_records) if personal_records else (None, None, None)
+
+            # Сохраняем физиологические данные
+            if lthr or vdot:
+                db.save_user_physiology(
+                    user.id,
+                    lthr=lthr,
+                    vdot=vdot,
+                    vdot_source=vdot_source,
+                    vdot_time_seconds=vdot_time
+                )
+
+            # Формируем результат
+            result_lines = []
             if total_count > 0:
-                await message.reply_text(f"✅ Загружено {total_count} тренировок за последние 60 дней                    ")
+                result_lines.append(f"✅ Загружено {total_count} тренировок за 60 дней")
             else:
-                await message.reply_text("ℹ️ Новых тренировок за последние 60 дней не найдено          ")
+                result_lines.append("ℹ️ Новых тренировок не найдено")
+
+            # Физиологические данные
+            if lthr or vdot:
+                result_lines.append("\n**Физиологические данные:**")
+                if lthr:
+                    result_lines.append(f"- LTHR: {lthr} уд/мин")
+
+            # Проверяем рост VDOT
+            vdot_changed = False
+            if vdot:
+                if old_vdot and vdot > old_vdot:
+                    delta = vdot - old_vdot
+                    result_lines.append(f"- VDOT: {vdot:.0f} (было {old_vdot:.0f}, **+{delta:.1f}**)")
+                    vdot_changed = True
+                else:
+                    result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})")
+
+            # При регистрации — определяем уровень и показываем кнопки
+            if is_registration:
+                from ..core.fitness_detector import detect_fitness_level
+
+                detected_level, level_stats = detect_fitness_level(user.id)
+                if detected_level:
+                    db.save_user_goal(user.id, fitness_level=detected_level)
+                    context.user_data['fitness_level'] = detected_level
+                    level_names = {"beginner": "Новичок", "intermediate": "Средний", "advanced": "Опытный"}
+                    result_lines.append(f"- Уровень: {level_names.get(detected_level, detected_level)}")
+
+                result_lines.append("\n▶️ Настроим план тренировок")
+
+                keyboard = [
+                    [
+                        InlineKeyboardButton("📅 Календарь", callback_data="setup_google_calendar"),
+                        InlineKeyboardButton("⏭ Настройка", callback_data="start_onboarding")
+                    ]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+
+                await status_message.edit_text(
+                    "\n".join(result_lines),
+                    parse_mode='Markdown',
+                    reply_markup=reply_markup
+                )
+            else:
+                # Обычная синхронизация — просто результат
+                await status_message.edit_text("\n".join(result_lines), parse_mode='Markdown')
+
+                # Если VDOT вырос — показываем обновлённые темпы
+                if vdot_changed:
+                    paces = get_training_paces(vdot)
+                    if paces:
+                        pace_text = "🚀 **Темпы пересчитаны!**\n\n"
+                        pace_text += f"• Easy: {paces.get('E', 'N/A')}\n"
+                        pace_text += f"• Threshold: {paces.get('T', 'N/A')}\n"
+                        pace_text += f"• Interval: {paces.get('I', 'N/A')}\n"
+                        pace_text += "\nНовые темпы применяются к будущим тренировкам"
+                        await message.reply_text(pace_text, parse_mode='Markdown')
+
+            # Показываем VDOT summary если есть
+            if vdot and vdot_source and vdot_time:
+                summary = format_vdot_summary(vdot, vdot_source, vdot_time)
+                await message.reply_text(summary, parse_mode='Markdown')
+
+            return total_count  # Возвращаем для AI-анализа в /sync
+
         except Exception as e:
             logger.error(f"Ошибка синхронизации для {telegram_id}: {e}")
-            await message.reply_text(
+            import traceback
+            logger.error(traceback.format_exc())
+            await status_message.edit_text(
                 "❌ Ошибка синхронизации с Garmin.\n\n"
-                "Проверь правильность логина/пароля в настройках аккаунта Garmin"
+                "Проверь правильность логина/пароля"
             )
 
     async def _handle_calendar(self, telegram_id: int, message):
@@ -2102,11 +2072,14 @@ class TrainingBot:
         query = update.callback_query
         await query.answer()
 
-        # Определяем цель
+        # Определяем цель (generic опции)
+        from datetime import timedelta
+        default_goal_date = time_utils.today() + timedelta(weeks=12)  # 12 недель от сегодня
+
         goal_mapping = {
-            'plan_tarki': {'name': 'Тарки-Тау 50км', 'distance': 50, 'date': date(2026, 2, 15), 'type': 'trail'},
-            'plan_marathon': {'name': 'Марафон 42км', 'distance': 42, 'date': date(2026, 3, 15), 'type': 'race'},
-            'plan_dwt': {'name': 'DWT 65км', 'distance': 65, 'date': date(2026, 4, 15), 'type': 'trail'}
+            'plan_half': {'name': 'Полумарафон 21км', 'distance': 21, 'date': default_goal_date, 'type': 'race'},
+            'plan_marathon': {'name': 'Марафон 42км', 'distance': 42, 'date': default_goal_date + timedelta(weeks=6), 'type': 'race'},
+            'plan_trail50': {'name': 'Трейл 50км', 'distance': 50, 'date': default_goal_date + timedelta(weeks=4), 'type': 'trail'}
         }
 
         goal_data = goal_mapping.get(query.data)
@@ -2221,19 +2194,44 @@ class TrainingBot:
         user = db.get_or_create_user(telegram_id)
 
         # Парсим введённое время
+        import re
         text = update.message.text.strip().lower()
         time_min = None
 
-        try:
-            # Пробуем распарсить как простое число
-            time_min = int(text)
-        except ValueError:
-            # Пробуем распарсить "с X до Y" или "с X:MM до Y:MM"
-            import re
+        # Паттерн 1: "90 минут", "60 мин", "120 минут"
+        min_pattern = r'^(\d+)\s*(?:минут[аы]?|мин\.?)$'
+        min_match = re.match(min_pattern, text)
+        if min_match:
+            time_min = int(min_match.group(1))
 
-            # Паттерны: "с 19 до 21", "19-21", "с 19:10 до 20:40", "19:30-21:00"
-            pattern = r'(?:с\s*)?(\d{1,2})(?::(\d{2}))?(?:\s*до\s*|\s*-\s*)(\d{1,2})(?::(\d{2}))?'
-            match = re.search(pattern, text)
+        # Паттерн 2: "1 час", "2 часа", "1,5 часа", "1.5 часа"
+        if time_min is None:
+            hour_pattern = r'^(\d+(?:[.,]\d+)?)\s*(?:час[а]?|ч\.?)$'
+            hour_match = re.match(hour_pattern, text)
+            if hour_match:
+                hours = float(hour_match.group(1).replace(',', '.'))
+                time_min = int(hours * 60)
+
+        # Паттерн 3: "1 час 30 минут", "1ч 30мин"
+        if time_min is None:
+            hour_min_pattern = r'^(\d+)\s*(?:час[а]?|ч\.?)\s*(\d+)\s*(?:минут[аы]?|мин\.?)$'
+            hour_min_match = re.match(hour_min_pattern, text)
+            if hour_min_match:
+                hours = int(hour_min_match.group(1))
+                mins = int(hour_min_match.group(2))
+                time_min = hours * 60 + mins
+
+        # Паттерн 4: простое число
+        if time_min is None:
+            try:
+                time_min = int(text)
+            except ValueError:
+                pass
+
+        # Паттерн 5: "с 19 до 21", "19-21", "с 19:10 до 20:40", "19:30-21:00"
+        if time_min is None:
+            range_pattern = r'(?:с\s*)?(\d{1,2})(?::(\d{2}))?(?:\s*до\s*|\s*-\s*)(\d{1,2})(?::(\d{2}))?'
+            match = re.search(range_pattern, text)
 
             if match:
                 start_hour = int(match.group(1))
@@ -2281,9 +2279,59 @@ class TrainingBot:
             )
             return PLAN_TIME
 
-        # Сохраняем время и спрашиваем про уровень подготовки
+        # Сохраняем время
         context.user_data['time_per_session'] = time_min
 
+        # Проверяем, есть ли уже сохранённый уровень подготовки
+        user_settings = db.get_user_settings(user.id)
+        existing_level = user_settings.get('fitness_level') if user_settings else None
+
+        # Если нет — пробуем автоопределить по Garmin
+        if not existing_level:
+            from ..core.fitness_detector import detect_fitness_level
+            detected_level, level_stats = detect_fitness_level(user.id)
+            if detected_level:
+                db.save_user_goal(user.id, fitness_level=detected_level)
+                existing_level = detected_level
+                logger.info(f"User {telegram_id}: автоопределён уровень {detected_level} при создании плана")
+
+        if existing_level:
+            # Уровень есть (сохранённый или автоопределённый) — сразу генерируем план
+            from ..core.plan_generator import PlanGenerator
+
+            goal_data = context.user_data.get('goal_data')
+            selected_days = context.user_data.get('selected_days', [])
+
+            level_names = {"beginner": "Новичок", "intermediate": "Средний", "advanced": "Опытный"}
+            level_display = level_names.get(existing_level, existing_level)
+
+            await update.message.reply_text(
+                f"⏳ Генерирую план...\n\n"
+                f"🎯 Цель: {goal_data['name']}\n"
+                f"📅 Дней в неделю: {len(selected_days)}\n"
+                f"⏱ Время на тренировку: {time_min} мин\n"
+                f"🏃 Уровень: {level_display} (по Garmin)"
+            )
+
+            generator = PlanGenerator(user.id)
+            trainings = generator.generate_detailed_plan(
+                goal_distance=goal_data['distance'],
+                goal_date=goal_data['date'],
+                training_days=selected_days,
+                time_per_session=time_min,
+                fitness_level=existing_level,
+                goal_type=goal_data.get('type', 'race')
+            )
+
+            await update.message.reply_text(
+                f"✅ План сгенерирован!\n\n"
+                f"Создано {len(trainings)} тренировок.\n\n"
+                f"Используй /plan чтобы посмотреть план на неделю."
+            )
+
+            return ConversationHandler.END
+
+        # Уровня нет и не удалось автоопределить — спрашиваем вручную
         from telegram import InlineKeyboardButton
         from telegram import InlineKeyboardMarkup
 
@@ -2294,8 +2342,8 @@ class TrainingBot:
         ]
 
         await update.message.reply_text(
-            "🏃 Какой у тебя опыт в беге?\n\n"
-            "Это нужно чтобы адаптировать объём и интенсивность тренировок",
+            "🏃 Недостаточно данных в Garmin для определения уровня.\n\n"
+            "Какой у тебя опыт в беге?",
             reply_markup=InlineKeyboardMarkup(keyboard)
         )
 
