@@ -152,56 +152,54 @@ class TrainingBot:
             logger.info(f"Новый пользователь {telegram_id}, запрос регистрации Garmin")
             return
 
-        # Проверяем прошёл ли онбординг
-        if not user.onboarding_completed:
-            # Есть Garmin, но онбординг не пройден — запускаем онбординг
-            keyboard = [
-                [InlineKeyboardButton("🎯 Настроить тренировки", callback_data="start_onboarding")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
+        # Есть credentials → ВСЕГДА синхронизация (железное правило)
+        # Определяем: после синхронизации показать онбординг или меню
+        is_onboarding_needed = not user.onboarding_completed
 
-            await update.message.reply_text(
-                "🏃 С возвращением!\n\n"
-                "Давай настроим твои тренировки под твои цели.",
-                reply_markup=reply_markup
-            )
-            logger.info(f"Пользователь {telegram_id} — онбординг не завершён, предлагаем настройку")
-            return
+        # Синхронизация с правильным UX
+        await self._sync_with_status(
+            telegram_id,
+            update.message,
+            context,
+            is_registration=is_onboarding_needed  # Если нужен онбординг — покажет кнопки
+        )
 
-        # Запускаем scheduler для пользователя
-        if user.id not in self.user_schedulers:
-            user_scheduler = TrainingScheduler(telegram_bot=self.app.bot)
-            user_scheduler.start(user.id, telegram_id)
-            self.user_schedulers[user.id] = user_scheduler
-            logger.info(f"Scheduler запущен для пользователя {telegram_id}")
+        # Если онбординг уже завершён — показываем меню после синхронизации
+        if not is_onboarding_needed:
+            # Запускаем scheduler для пользователя
+            if user.id not in self.user_schedulers:
+                user_scheduler = TrainingScheduler(telegram_bot=self.app.bot)
+                user_scheduler.start(user.id, telegram_id)
+                self.user_schedulers[user.id] = user_scheduler
+                logger.info(f"Scheduler запущен для пользователя {telegram_id}")
 
-        # Получаем рекомендацию на сегодня
-        daily_rec = self._get_daily_recommendation(user.id)
+            # Получаем рекомендацию на сегодня
+            daily_rec = self._get_daily_recommendation(user.id)
 
-        welcome_text = "🏃 С возвращением!"
+            welcome_text = "🏃 С возвращением!"
 
-        if daily_rec:
-            welcome_text += daily_rec
+            if daily_rec:
+                welcome_text += daily_rec
 
-        welcome_text += """
+            welcome_text += """
 
 Команды: /sync /stats /plan /calendar /zones /methodology
 """
-        # Inline кнопки для быстрого доступа
-        keyboard = [
-            [
-                InlineKeyboardButton("📊 Статистика", callback_data="quick_stats"),
-                InlineKeyboardButton("📅 План", callback_data="quick_plan")
-            ],
-            [
-                InlineKeyboardButton("🔄 Синхронизация", callback_data="quick_sync"),
-                InlineKeyboardButton("📲 Календарь", callback_data="quick_calendar")
+            # Inline кнопки для быстрого доступа
+            keyboard = [
+                [
+                    InlineKeyboardButton("📊 Статистика", callback_data="quick_stats"),
+                    InlineKeyboardButton("📅 План", callback_data="quick_plan")
+                ],
+                [
+                    InlineKeyboardButton("🔄 Синхронизация", callback_data="quick_sync"),
+                    InlineKeyboardButton("📲 Календарь", callback_data="quick_calendar")
+                ]
             ]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
+            reply_markup = InlineKeyboardMarkup(keyboard)
 
-        await update.message.reply_text(welcome_text, reply_markup=reply_markup)
-        logger.info(f"Пользователь {telegram_id} запустил бота")
+            await update.message.reply_text(welcome_text, reply_markup=reply_markup)
+            logger.info(f"Пользователь {telegram_id} запустил бота")
 
     async def help_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /help"""
