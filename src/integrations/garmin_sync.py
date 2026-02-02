@@ -224,6 +224,10 @@ class GarminSync:
         """
         Получить LTHR (Lactate Threshold Heart Rate) из Garmin
 
+        Пробует несколько источников:
+        1. get_lactate_threshold() — прямой запрос
+        2. get_max_metrics() — альтернативный endpoint
+
         Returns:
             LTHR в уд/мин или None
         """
@@ -232,15 +236,38 @@ class GarminSync:
                 return None
 
         try:
-            # Получаем последние данные о лактатном пороге
+            # Источник 1: Прямой запрос LTHR
             lt_data = self.client.get_lactate_threshold(latest=True)
+            logger.info(f"Ответ get_lactate_threshold: {lt_data}")
+
+            # Обработка разных форматов ответа (может быть list или dict)
+            if isinstance(lt_data, list) and lt_data:
+                lt_data = lt_data[0]
 
             if lt_data and isinstance(lt_data, dict):
-                # Ищем пульс лактатного порога
-                lthr = lt_data.get('lactateThresholdHeartRate')
+                # Проверяем разные возможные ключи
+                lthr = (lt_data.get('lactateThresholdHeartRate') or
+                        lt_data.get('lactateThresholdHR') or
+                        lt_data.get('thresholdHeartRate') or
+                        lt_data.get('lthr'))
                 if lthr:
-                    logger.info(f"Получен LTHR из Garmin: {lthr} уд/мин")
+                    logger.info(f"LTHR из Garmin: {lthr} уд/мин")
                     return int(lthr)
+
+            # Источник 2: max_metrics (альтернатива)
+            logger.info("LTHR не найден в get_lactate_threshold, пробую get_max_metrics...")
+            try:
+                max_metrics = self.client.get_max_metrics(date.today().isoformat())
+                logger.info(f"Ответ get_max_metrics: {max_metrics}")
+
+                if max_metrics and isinstance(max_metrics, dict):
+                    # Проверяем есть ли threshold данные
+                    threshold = max_metrics.get('lactateThresholdHeartRate')
+                    if threshold:
+                        logger.info(f"LTHR из max_metrics: {threshold} уд/мин")
+                        return int(threshold)
+            except Exception as e:
+                logger.info(f"get_max_metrics не доступен: {e}")
 
             logger.info("LTHR не найден в данных Garmin")
             return None
