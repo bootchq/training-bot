@@ -411,6 +411,13 @@ class TrainingScheduler:
             text += f"🏃 Тренировок: {week_stats.get('total_trainings', 0)}\n"
             text += f"📏 Объём: {week_stats.get('total_distance', 0):.1f} км\n"
             text += f"⏱ Время: {week_stats.get('total_time', 0)} мин\n\n"
+
+            # Добавляем информацию об уровне
+            from ..core.fitness_detector import format_level_for_weekly_report
+            level_section = format_level_for_weekly_report(self.user_id)
+            if level_section:
+                text += f"\n{level_section}\n"
+
             text += f"**🤖 AI-анализ:**\n{ai_response}"
 
             await self.telegram_bot.send_message(

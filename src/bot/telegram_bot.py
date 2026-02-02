@@ -1020,8 +1020,10 @@ class TrainingBot:
         """Спросить дату забега"""
         text = (
             "📅 Когда у тебя забег?\n\n"
-            "Напиши дату в формате ДД.ММ.ГГГГ\n"
-            "(например: 15.05.2026 или 01.09.2026):"
+            "Напиши дату в любом формате:\n"
+            "• 15 марта 2026\n"
+            "• 15.03.2026\n"
+            "• март 15"
         )
 
         if query:
@@ -1621,7 +1623,7 @@ class TrainingBot:
 
             # При регистрации — определяем уровень и показываем кнопки
             if is_registration:
-                from ..core.fitness_detector import detect_fitness_level
+                from ..core.fitness_detector import detect_fitness_level, format_level_with_evidence
 
                 detected_level, level_stats = detect_fitness_level(user.id)
                 if detected_level:
@@ -1645,6 +1647,11 @@ class TrainingBot:
                     parse_mode='Markdown',
                     reply_markup=reply_markup
                 )
+
+                # Отправляем отдельное сообщение с доказательствами уровня
+                if detected_level:
+                    level_evidence_text = format_level_with_evidence(user.id, detected_level, level_stats)
+                    await message.reply_text(level_evidence_text, parse_mode='Markdown')
             else:
                 # Обычная синхронизация — просто результат
                 await status_message.edit_text("\n".join(result_lines), parse_mode='Markdown')
@@ -1853,39 +1860,39 @@ class TrainingBot:
         # === ОНБОРДИНГ: ввод даты забега ===
         if context.user_data.get('awaiting_goal_date'):
             logger.info(f"Обработка даты забега от user={telegram_id}: '{message_text}'")
-            from datetime import datetime
 
-            try:
-                # Парсим дату в формате ДД.ММ.ГГГГ
-                goal_date = datetime.strptime(message_text, "%d.%m.%Y").date()
+            # Используем умный парсер дат
+            goal_date = time_utils.parse_date_flexible(message_text)
 
-                # Проверяем что дата в будущем
-                if goal_date <= time_utils.today():
-                    await update.message.reply_text(
-                        "❌ Дата должна быть в будущем!\n\n"
-                        "Введи дату забега в формате ДД.ММ.ГГГГ\n"
-                        "(например: 15.05.2026):"
-                    )
-                    return
-
-                # Сохраняем дату
-                goal_type = context.user_data.get('goal_type', 'race')
-                db.save_user_goal(user.id, goal_type=goal_type, goal_date=goal_date)
-                context.user_data['awaiting_goal_date'] = False
-                logger.info(f"Сохранена дата забега {goal_date} для user={telegram_id}")
-
-                await update.message.reply_text(f"✅ Отлично! Цель: {goal_date.strftime('%d.%m.%Y')}")
-                await self._show_days_selection(message=update.message, context=context)
-                return
-
-            except ValueError as e:
-                logger.warning(f"Некорректная дата от user={telegram_id}: {e}")
+            if goal_date is None:
+                logger.warning(f"Не удалось распознать дату от user={telegram_id}: '{message_text}'")
                 await update.message.reply_text(
-                    "❌ Неправильный формат даты!\n\n"
-                    "Введи дату в формате ДД.ММ.ГГГГ\n"
-                    "(например: 15.05.2026 или 01.09.2026):"
+                    "❌ Не удалось распознать дату.\n\n"
+                    "Попробуй один из форматов:\n"
+                    "• 15.03.2026\n"
+                    "• 15 марта 2026\n"
+                    "• 15 мар\n"
+                    "• март 15"
                 )
                 return
+
+            # Проверяем что дата в будущем
+            if goal_date <= time_utils.today():
+                await update.message.reply_text(
+                    "❌ Дата должна быть в будущем!\n\n"
+                    "Введи дату забега:"
+                )
+                return
+
+            # Сохраняем дату
+            goal_type = context.user_data.get('goal_type', 'race')
+            db.save_user_goal(user.id, goal_type=goal_type, goal_date=goal_date)
+            context.user_data['awaiting_goal_date'] = False
+            logger.info(f"Сохранена дата забега {goal_date} для user={telegram_id}")
+
+            await update.message.reply_text(f"✅ Отлично! Цель: {goal_date.strftime('%d.%m.%Y')}")
+            await self._show_days_selection(message=update.message, context=context)
+            return
 
         # === ОНБОРДИНГ: ввод времени тренировок ===
         if context.user_data.get('awaiting_time'):

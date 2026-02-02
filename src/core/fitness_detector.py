@@ -1,13 +1,13 @@
 """Автоопределение уровня подготовки по данным Garmin"""
 from datetime import timedelta
-from typing import Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import func
 
 from ..database.db import db, Training
 from ..utils import time_utils
 from ..utils.logger import logger
-from .vdot_calculator import find_best_times_from_trainings, calculate_vdot_from_time
+from .vdot_calculator import find_best_times_from_trainings, calculate_vdot_from_time, format_time
 
 
 def detect_fitness_level(user_id: int) -> Tuple[Optional[str], dict]:
@@ -212,8 +212,172 @@ def _format_pace(seconds_per_km: int) -> str:
     return f"{minutes}:{seconds:02d}"
 
 
+def get_level_evidence(user_id: int) -> Dict[str, Any]:
+    """
+    Собирает доказательства (конкретные тренировки), повлиявшие на определение уровня.
+
+    Returns:
+        {
+            "evidence": [
+                {"type": "vdot_10k", "date": "2026-01-15", "distance_km": 10.2,
+                 "time": "57:00", "result": "VDOT 33.7", "signal": "intermediate"},
+                ...
+            ],
+            "missing": ["Нет тренировок 10+ км для расчёта VDOT"],
+            "has_sufficient_data": True/False
+        }
+    """
+    evidence = []
+    missing = []
+
+    with db.get_session() as session:
+        # 1. Найти тренировку с максимальной дистанцией
+        max_dist_training = session.query(Training).filter(
+            Training.user_id == user_id,
+            Training.type == 'actual',
+            Training.distance_km.isnot(None)
+        ).order_by(Training.distance_km.desc()).first()
+
+        if max_dist_training and max_dist_training.distance_km:
+            dist = max_dist_training.distance_km
+            signal = "advanced" if dist >= 30 else ("intermediate" if dist >= 20 else "beginner")
+
+            # Рассчитываем темп
+            pace_str = None
+            if max_dist_training.duration_min and dist > 0:
+                pace_sec = (max_dist_training.duration_min * 60) / dist
+                pace_str = _format_pace(int(pace_sec))
+
+            evidence.append({
+                "type": "max_distance",
+                "date": max_dist_training.date.strftime("%d.%m.%Y") if max_dist_training.date else None,
+                "distance_km": round(dist, 1),
+                "time": f"{max_dist_training.duration_min} мин" if max_dist_training.duration_min else None,
+                "pace": pace_str,
+                "result": f"{dist:.1f} км",
+                "signal": signal,
+                "explanation": f"≥20 км → intermediate, ≥30 км → advanced"
+            })
+        else:
+            missing.append("Нет записанных тренировок")
+
+        # 2. Найти лучшие результаты на 10к и полумарафоне для VDOT
+        best_times = find_best_times_from_trainings(user_id)
+
+        if '10k' in best_times:
+            bt = best_times['10k']
+            vdot = calculate_vdot_from_time('10k', bt['time_seconds'])
+            signal = "advanced" if vdot and vdot >= 50 else ("intermediate" if vdot and vdot >= 40 else "beginner")
+
+            evidence.append({
+                "type": "vdot_10k",
+                "date": bt['date'].strftime("%d.%m.%Y") if bt.get('date') else None,
+                "distance_km": round(bt.get('distance_km', 10), 1),
+                "time": format_time(bt['time_seconds']),
+                "result": f"VDOT {vdot:.1f}" if vdot else "N/A",
+                "signal": signal,
+                "explanation": f"VDOT ≥40 → intermediate, ≥50 → advanced"
+            })
+        else:
+            # Проверяем есть ли тренировки близкие к 10к
+            near_10k = session.query(Training).filter(
+                Training.user_id == user_id,
+                Training.type == 'actual',
+                Training.distance_km >= 8,
+                Training.distance_km < 9.5
+            ).count()
+            if near_10k > 0:
+                missing.append(f"Есть {near_10k} тренировок 8-9.5 км, но нет 10 км для расчёта VDOT")
+            else:
+                missing.append("Нет тренировок 10 км для расчёта VDOT")
+
+        if 'half' in best_times:
+            bt = best_times['half']
+            vdot = calculate_vdot_from_time('half', bt['time_seconds'])
+            signal = "advanced" if vdot and vdot >= 50 else ("intermediate" if vdot and vdot >= 40 else "beginner")
+
+            evidence.append({
+                "type": "vdot_half",
+                "date": bt['date'].strftime("%d.%m.%Y") if bt.get('date') else None,
+                "distance_km": round(bt.get('distance_km', 21.1), 1),
+                "time": format_time(bt['time_seconds']),
+                "result": f"VDOT {vdot:.1f}" if vdot else "N/A",
+                "signal": signal,
+                "explanation": f"VDOT ≥40 → intermediate, ≥50 → advanced"
+            })
+
+        # 3. Найти лучший темп на длинных (15+ км)
+        long_runs = session.query(Training).filter(
+            Training.user_id == user_id,
+            Training.type == 'actual',
+            Training.distance_km >= 15,
+            Training.duration_min.isnot(None),
+            Training.duration_min > 0
+        ).all()
+
+        if long_runs:
+            best_pace = None
+            best_long_run = None
+            for t in long_runs:
+                pace_sec = (t.duration_min * 60) / t.distance_km
+                if best_pace is None or pace_sec < best_pace:
+                    best_pace = pace_sec
+                    best_long_run = t
+
+            if best_long_run:
+                signal = "intermediate" if best_pace < 420 else "beginner"  # 7:00/км = 420 сек
+                evidence.append({
+                    "type": "long_run_pace",
+                    "date": best_long_run.date.strftime("%d.%m.%Y") if best_long_run.date else None,
+                    "distance_km": round(best_long_run.distance_km, 1),
+                    "time": f"{best_long_run.duration_min} мин",
+                    "pace": _format_pace(int(best_pace)),
+                    "result": f"темп {_format_pace(int(best_pace))}/км",
+                    "signal": signal,
+                    "explanation": f"темп < 7:00/км на длинной → intermediate"
+                })
+        elif max_dist_training and max_dist_training.distance_km and max_dist_training.distance_km < 15:
+            missing.append(f"Нет длинных тренировок 15+ км (макс. {max_dist_training.distance_km:.1f} км)")
+
+        # 4. Статистика за 4 недели (объём, частота)
+        four_weeks_ago = time_utils.today() - timedelta(days=28)
+        recent_stats = session.query(
+            func.count(Training.id).label('count'),
+            func.sum(Training.distance_km).label('distance')
+        ).filter(
+            Training.user_id == user_id,
+            Training.type == 'actual',
+            Training.date >= four_weeks_ago
+        ).first()
+
+        if recent_stats and recent_stats.count and recent_stats.count >= 4:
+            weekly_km = (recent_stats.distance or 0) / 4
+            weekly_trainings = recent_stats.count / 4
+
+            if weekly_km >= 40 and weekly_trainings >= 4:
+                evidence.append({
+                    "type": "weekly_volume",
+                    "period": "последние 4 недели",
+                    "distance_km": round(weekly_km, 1),
+                    "trainings_per_week": round(weekly_trainings, 1),
+                    "result": f"{weekly_km:.0f} км/нед, {weekly_trainings:.1f} тр/нед",
+                    "signal": "intermediate",
+                    "explanation": "≥40 км/нед + ≥4 тренировки → intermediate"
+                })
+
+    # Определяем достаточно ли данных
+    has_key_evidence = any(e['type'] in ['vdot_10k', 'vdot_half', 'max_distance', 'long_run_pace']
+                          and e.get('signal') in ['intermediate', 'advanced'] for e in evidence)
+
+    return {
+        "evidence": evidence,
+        "missing": missing,
+        "has_sufficient_data": len(evidence) > 0 and (has_key_evidence or len(missing) == 0)
+    }
+
+
 def format_level_explanation(level: str, stats: dict) -> str:
-    """Форматирует объяснение определённого уровня для пользователя"""
+    """Форматирует объяснение определённого уровня для пользователя (старая версия)"""
     level_names = {
         "beginner": "🟢 Новичок",
         "intermediate": "🟡 Средний",
@@ -251,5 +415,139 @@ def format_level_explanation(level: str, stats: dict) -> str:
         text += f"• Тренировок: ~{weekly_tr}/нед\n"
 
     text += f"\n✅ Твой уровень: **{level_name}**"
+
+    return text
+
+
+def format_level_with_evidence(user_id: int, level: str, stats: dict) -> str:
+    """
+    Форматирует объяснение уровня С КОНКРЕТНЫМИ ТРЕНИРОВКАМИ.
+
+    Показывает:
+    - Список тренировок, повлиявших на определение
+    - Что означает каждая тренировка
+    - Итоговый уровень
+    - Если данных не хватает — что нужно для точного определения
+
+    Args:
+        user_id: ID пользователя
+        level: Определённый уровень (beginner/intermediate/advanced)
+        stats: Статистика из detect_fitness_level()
+
+    Returns:
+        Текст для отображения пользователю
+    """
+    level_names = {
+        "beginner": "🟢 Новичок",
+        "intermediate": "🟡 Средний",
+        "advanced": "🔴 Опытный"
+    }
+    level_name = level_names.get(level, level)
+
+    # Получаем доказательства
+    evidence_data = get_level_evidence(user_id)
+    evidence_list = evidence_data.get("evidence", [])
+    missing_list = evidence_data.get("missing", [])
+
+    text = "📊 **Анализ твоего уровня**\n\n"
+
+    if evidence_list:
+        text += "**Ключевые тренировки:**\n"
+
+        # Группируем по типу и показываем самые важные
+        type_labels = {
+            "max_distance": "📏 Макс. дистанция",
+            "vdot_10k": "🏃 10 км",
+            "vdot_half": "🏃 Полумарафон",
+            "long_run_pace": "⏱ Темп на длинных",
+            "weekly_volume": "📈 Недельный объём"
+        }
+
+        for e in evidence_list:
+            e_type = e.get("type", "")
+            label = type_labels.get(e_type, e_type)
+
+            # Формируем строку
+            parts = []
+            if e.get("date"):
+                parts.append(e["date"])
+            if e.get("distance_km"):
+                parts.append(f"{e['distance_km']} км")
+            if e.get("time") and e_type in ["vdot_10k", "vdot_half"]:
+                parts.append(f"за {e['time']}")
+            if e.get("pace") and e_type == "long_run_pace":
+                parts.append(f"темп {e['pace']}/км")
+
+            result = e.get("result", "")
+            signal = e.get("signal", "")
+
+            # Emoji по сигналу
+            signal_emoji = "🔴" if signal == "advanced" else ("🟡" if signal == "intermediate" else "🟢")
+
+            text += f"• {label}: "
+            if parts:
+                text += f"{', '.join(parts)}"
+            if result:
+                text += f" → **{result}** {signal_emoji}\n"
+            else:
+                text += "\n"
+
+    if missing_list:
+        text += "\n**Чего не хватает для точного определения:**\n"
+        for m in missing_list:
+            text += f"• {m}\n"
+
+    text += f"\n✅ **Твой уровень: {level_name}**"
+
+    # Добавляем пояснение если уровень beginner из-за нехватки данных
+    if level == "beginner" and missing_list and not evidence_data.get("has_sufficient_data"):
+        text += "\n\n_Уровень будет уточнён автоматически после появления новых данных._"
+
+    return text
+
+
+def format_level_for_weekly_report(user_id: int) -> Optional[str]:
+    """
+    Форматирует секцию уровня для еженедельного отчёта.
+
+    Returns:
+        Текст секции или None если нет данных
+    """
+    level, stats = detect_fitness_level(user_id)
+
+    if not level:
+        return None
+
+    evidence_data = get_level_evidence(user_id)
+    evidence_list = evidence_data.get("evidence", [])
+
+    if not evidence_list:
+        return None
+
+    level_names = {
+        "beginner": "🟢 Новичок",
+        "intermediate": "🟡 Средний",
+        "advanced": "🔴 Опытный"
+    }
+    level_name = level_names.get(level, level)
+
+    text = f"**Твой уровень: {level_name}**\n"
+    text += "Основано на:\n"
+
+    # Показываем только ключевые доказательства (не все)
+    shown = 0
+    for e in evidence_list:
+        if shown >= 3:
+            break
+        if e.get("signal") in ["intermediate", "advanced"]:
+            if e.get("type") == "vdot_10k":
+                text += f"• 10 км за {e.get('time', 'N/A')} → {e.get('result', '')}\n"
+            elif e.get("type") == "vdot_half":
+                text += f"• Полумарафон за {e.get('time', 'N/A')} → {e.get('result', '')}\n"
+            elif e.get("type") == "max_distance":
+                text += f"• Макс. дистанция: {e.get('distance_km', '')} км\n"
+            elif e.get("type") == "long_run_pace":
+                text += f"• Длинная {e.get('distance_km', '')} км с темпом {e.get('pace', '')}/км\n"
+            shown += 1
 
     return text
