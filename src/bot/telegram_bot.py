@@ -1506,7 +1506,14 @@ class TrainingBot:
 
         for plan in plans:
             day_name = days_ru.get(plan.date.weekday(), "")
-            plan_text = f"**{day_name} {plan.date.strftime('%d.%m')}**\n\n"
+            plan_text = f"**{day_name} {plan.date.strftime('%d.%m')}**\n"
+
+            # Добавляем цель тренировки
+            if hasattr(plan, 'goal') and plan.goal:
+                plan_text += f"🎯 {plan.goal}\n\n"
+            else:
+                plan_text += "\n"
+
             if plan.description:
                 plan_text += f"{plan.description}\n"
             else:
