@@ -151,6 +151,16 @@ def detect_fitness_level(user_id: int) -> Tuple[Optional[str], dict]:
         f"{weekly_distance:.1f} км/нед)"
     )
 
+    # Сохраняем VDOT в базу если рассчитан
+    if vdot and vdot_source:
+        db.save_user_physiology(
+            user_id,
+            vdot=vdot,
+            vdot_source=vdot_source,
+            vdot_time_seconds=best_times.get(vdot_source, {}).get('time_seconds')
+        )
+        logger.info(f"VDOT {vdot:.1f} сохранён в базу для user_id={user_id}")
+
     return level, stats
 
 
