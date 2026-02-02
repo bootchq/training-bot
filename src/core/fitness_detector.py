@@ -475,20 +475,13 @@ def format_level_with_evidence(user_id: int, level: str, stats: dict) -> str:
                 parts.append(f"{e['distance_km']} км")
             if e.get("time") and e_type in ["vdot_10k", "vdot_half"]:
                 parts.append(f"за {e['time']}")
-            if e.get("pace") and e_type == "long_run_pace":
-                parts.append(f"темп {e['pace']}/км")
-
             result = e.get("result", "")
-            signal = e.get("signal", "")
-
-            # Emoji по сигналу
-            signal_emoji = "🔴" if signal == "advanced" else ("🟡" if signal == "intermediate" else "🟢")
 
             text += f"• {label}: "
             if parts:
                 text += f"{', '.join(parts)}"
             if result:
-                text += f" → **{result}** {signal_emoji}\n"
+                text += f" → **{result}**\n"
             else:
                 text += "\n"
 
