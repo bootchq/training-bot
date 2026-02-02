@@ -1132,7 +1132,7 @@ class Database:
 
             # Активные за неделю (есть тренировки за последние 7 дней)
             active_user_ids = session.query(Training.user_id).filter(
-                Training.created_at >= week_ago
+                Training.date >= week_ago.date()
             ).distinct().count()
 
             # Завершили онбординг
