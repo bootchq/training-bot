@@ -96,7 +96,6 @@ class TrainingBot:
         self.app.add_handler(CallbackQueryHandler(self.handle_reset_confirm, pattern="^(confirm|cancel)_reset$"))
         self.app.add_handler(CallbackQueryHandler(self.handle_quick_actions, pattern="^quick_"))
         self.app.add_handler(CallbackQueryHandler(self.handle_stats_period, pattern="^stats_"))
-        self.app.add_handler(CallbackQueryHandler(self.handle_next_3_trainings, pattern="^next3_"))
 
         # ConversationHandlers после standalone handlers
         self.app.add_handler(garmin_registration_handler)
@@ -396,85 +395,6 @@ class TrainingBot:
 
         logger.info(f"Пользователь {telegram_id} запросил объединённую статистику за {period}")
 
-    async def handle_next_3_trainings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Обработка кнопки 'Следующие 3 тренировки'"""
-        from datetime import date
-        from datetime import timedelta
-
-        query = update.callback_query
-        await query.answer()
-
-        telegram_id = update.effective_user.id
-        user = db.get_or_create_user(telegram_id)
-
-        # Извлекаем дату из callback_data (формат: "next3_2026-01-31")
-        current_date_str = query.data.replace("next3_", "")
-        current_date = date.fromisoformat(current_date_str)
-
-        # Получаем тренировки после текущей даты (следующие 30 дней)
-        next_day = current_date + timedelta(days=1)
-        end_date = current_date + timedelta(days=30)
-        future_plans = db.get_plan_for_period(user.id, next_day, end_date)
-
-        if not future_plans or len(future_plans) == 0:
-            await query.edit_message_reply_markup(reply_markup=None)
-            await context.bot.send_message(
-                chat_id=telegram_id,
-                text="ℹ️ Следующих тренировок не найдено"
-            )
-            return
-
-        # Берём первые 3
-        next_3 = future_plans[:3]
-
-        # Получаем настройки времени старта
-        settings = db.get_user_settings(user.id)
-        start_time_weekday = settings.get('start_time_weekday', '07:00') if settings else '07:00'
-        start_time_weekend = settings.get('start_time_weekend', '09:00') if settings else '09:00'
-
-        # Формируем сообщение
-        days_ru = {
-            0: "Понедельник", 1: "Вторник", 2: "Среда", 3: "Четверг",
-            4: "Пятница", 5: "Суббота", 6: "Воскресенье"
-        }
-
-        message_text = "📅 **Следующие 3 тренировки:**\n\n"
-
-        for i, plan in enumerate(next_3, 1):
-            day_name = days_ru.get(plan.date.weekday(), "")
-            is_weekend = plan.date.weekday() >= 5
-            start_time = start_time_weekend if is_weekend else start_time_weekday
-
-            message_text += f"**{i}. {day_name} {plan.date.strftime('%d.%m')}** | Старт: {start_time}\n"
-
-            if hasattr(plan, 'goal') and plan.goal:
-                message_text += f"🎯 {plan.goal}\n"
-
-            if plan.description:
-                message_text += f"{plan.description}\n"
-            else:
-                message_text += f"**{plan.type.capitalize()}**\n"
-                if plan.duration_min:
-                    message_text += f"- Время: {plan.duration_min} мин\n"
-                if plan.distance_km:
-                    message_text += f"- Расстояние: ~{plan.distance_km:.1f} км\n"
-                if plan.target_zone:
-                    message_text += f"- Зоны: {plan.target_zone}\n"
-
-            message_text += "\n"
-
-        # Удаляем кнопку с исходного сообщения
-        await query.edit_message_reply_markup(reply_markup=None)
-
-        # Отправляем следующие тренировки
-        await context.bot.send_message(
-            chat_id=telegram_id,
-            text=message_text,
-            parse_mode='Markdown'
-        )
-
-        logger.info(f"Показаны следующие 3 тренировки для user={telegram_id} после {current_date}")
-
     async def records(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /records - показ персональных рекордов"""
         telegram_id = update.effective_user.id
@@ -595,11 +515,7 @@ class TrainingBot:
                 if plan.target_zone:
                     plan_text += f"- Зоны: {plan.target_zone}\n"
 
-            # Кнопка "Следующие 3 тренировки"
-            keyboard = [[InlineKeyboardButton("📅 Следующие 3 тренировки", callback_data=f"next3_{plan.date.isoformat()}")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await update.message.reply_text(plan_text, parse_mode='Markdown', reply_markup=reply_markup)
+            await update.message.reply_text(plan_text, parse_mode='Markdown')
 
         logger.info(f"Пользователь {telegram_id} запросил план на неделю")
 
@@ -1525,11 +1441,7 @@ class TrainingBot:
                 if plan.target_zone:
                     plan_text += f"- Зоны: {plan.target_zone}\n"
 
-            # Кнопка "Следующие 3 тренировки"
-            keyboard = [[InlineKeyboardButton("📅 Следующие 3 тренировки", callback_data=f"next3_{plan.date.isoformat()}")]]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-
-            await message.reply_text(plan_text, parse_mode='Markdown', reply_markup=reply_markup)
+            await message.reply_text(plan_text, parse_mode='Markdown')
 
         logger.info(f"Пользователь {telegram_id} запросил план")
 
