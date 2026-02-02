@@ -697,20 +697,22 @@ class PlanGenerator:
         else:
             tips = ""
 
+        # Извлекаем только советы (💡 и ⚠️) из tips
+        tip_lines = []
+        if tips:
+            for line in tips.split('\n'):
+                line = line.strip()
+                if line.startswith('💡') or line.startswith('⚠️'):
+                    tip_lines.append(line)
+
         description = f"""**{template['name']}** ({template.get('pace_zone', 'I')}-pace)
+- Разминка: {warmup} мин Z2 + 4×100м ускорения
+- Основная часть: {main_description}
+- Заминка: {cooldown} мин Z1-Z2
+- {pace_info}
+- Пульс: {hr_info}
 
-🏃 **Разминка:** {warmup} мин Z2 + 4×100м ускорения
-
-🎯 **Основная часть:**
-   {main_description}
-
-🧘 **Заминка:** {cooldown} мин Z1-Z2
-
-{tips}
-
-📊 {pace_info}
-💓 Пульс работы: {hr_info}
-"""
+{chr(10).join(tip_lines)}"""
 
         return {
             'description': description,
@@ -749,7 +751,8 @@ class PlanGenerator:
             description += f"\n- {pace_info}"
         if hr_info:
             description += f"\n- Пульс: {hr_info}"
-        description += "\n- Ощущение: комфортно тяжело, короткие фразы"
+
+        description += "\n\n💡 Комфортно тяжело — можешь говорить короткими фразами, но не предложениями\n⚠️ Если «умираешь» к концу — начал слишком быстро"
 
         return {
             'description': description,
@@ -798,7 +801,8 @@ class PlanGenerator:
             description += f"\n- {pace_info}"
         if hr_info:
             description += f"\n- Пульс: {hr_info}"
-        description += "\n- Принцип: держи разговорный темп всю тренировку"
+
+        description += "\n\n💡 Главное — время на ногах. Не гонись за темпом\n⚠️ Возьми воду и гели если бежишь дольше 90 мин"
 
         return {
             'description': description,
@@ -817,6 +821,8 @@ class PlanGenerator:
         if hr_info:
             description += f"\n- Пульс: ниже {hr_info.split('-')[0]} уд/мин"
 
+        description += "\n\n💡 Это не тренировка — это восстановление. Беги максимально легко\n⚠️ Если чувствуешь усталость — лучше пройтись или отдохнуть"
+
         return {
             'description': description,
             'target_zone': 'Z1',
@@ -832,8 +838,9 @@ class PlanGenerator:
                 f"**Лёгкий бег по тропам**\n"
                 f"- {total_time} мин в Z2\n"
                 f"- Можно с небольшими подъёмами\n"
-                f"- Адаптация к пересечённой местности"
+                f"- Цель: адаптация к пересечённой местности"
             )
+            tips = "💡 Слушай тело — на подъёмах можно переходить на шаг\n⚠️ Не гонись за темпом, важно время на ногах"
         else:
             description = (
                 f"**Лёгкий аэробный бег (E-pace)**\n"
@@ -841,11 +848,14 @@ class PlanGenerator:
                 f"- Разговорный темп\n"
                 f"- Цель: развитие аэробной базы"
             )
+            tips = "💡 Должен мочь разговаривать полными предложениями\n⚠️ Если дыхание сбивается — сбавь темп"
 
         if pace_info:
             description += f"\n- {pace_info}"
         if hr_info:
             description += f"\n- Пульс: {hr_info}"
+
+        description += f"\n\n{tips}"
 
         return {
             'description': description,
