@@ -2253,18 +2253,25 @@ class TrainingBot:
                 f"🏃 Уровень: {level_display} (по Garmin)"
             )
 
+            # Рассчитываем количество недель до забега
+            from ..utils import time_utils
+            days_until_race = (goal_data['date'] - time_utils.today()).days
+            weeks = max(4, min(16, days_until_race // 7))
+
             generator = PlanGenerator(user.id)
             trainings = generator.generate_detailed_plan(
                 goal_distance=goal_data['distance'],
                 goal_date=goal_data['date'],
                 training_days=selected_days,
                 time_per_session=time_min,
+                weeks=weeks,
                 fitness_level=existing_level,
                 goal_type=goal_data.get('type', 'race')
             )
 
             await update.message.reply_text(
                 f"✅ План сгенерирован!\n\n"
+                f"📅 До забега: {days_until_race} дней ({weeks} недель)\n"
                 f"Создано {len(trainings)} тренировок.\n\n"
                 f"Используй /plan чтобы посмотреть план на неделю."
             )
@@ -2421,10 +2428,16 @@ class TrainingBot:
         telegram_id = update.effective_user.id
         user = db.get_or_create_user(telegram_id)
 
+        # Рассчитываем количество недель до забега
+        from ..utils import time_utils
+        days_until_race = (goal_data['date'] - time_utils.today()).days
+        weeks = max(4, min(16, days_until_race // 7))
+
         await query.message.edit_text(
             f"⏳ Генерирую индивидуальный план...\n\n"
             f"🎯 Цель: {goal_data['name']}\n"
-            f"📅 Дней в неделю: {len(selected_days)}\n"
+            f"📅 До забега: {days_until_race} дней ({weeks} недель)\n"
+            f"📆 Дней в неделю: {len(selected_days)}\n"
             f"⏱ Время на тренировку: {time_min} мин\n"
             f"🏃 Уровень: {level}"
         )
@@ -2437,7 +2450,7 @@ class TrainingBot:
             goal_date=goal_data['date'],
             training_days=selected_days,
             time_per_session=time_min,
-            weeks=4,
+            weeks=weeks,
             goal_type=goal_data.get('type', 'race'),
             fitness_level=level
         )
@@ -2449,7 +2462,7 @@ class TrainingBot:
             f"✅ План создан!\n\n"
             f"🎯 Цель: {goal_data['name']} ({goal_data['date'].strftime('%d.%m.%Y')})\n"
             f"📅 Сгенерировано тренировок: {count}\n"
-            f"📆 Период: 4 недели\n\n"
+            f"📆 Период: {weeks} недель\n\n"
             "Используй /plan чтобы посмотреть план на неделю"
         )
 

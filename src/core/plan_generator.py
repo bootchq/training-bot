@@ -96,6 +96,187 @@ class PlanGenerator:
         # История использованных шаблонов интервалов (для ротации)
         self.recent_interval_templates: List[str] = []
 
+        # Валидация темпов по реальным данным
+        self.real_paces = self._get_real_paces_from_history()
+        self.validated_paces = self._validate_paces()
+
+    def _get_real_paces_from_history(self) -> Dict[str, int]:
+        """
+        Получить реальные темпы из истории тренировок.
+
+        Returns:
+            {
+                'best_pace_sec': 300,      # Лучший темп (сек/км)
+                'avg_easy_pace_sec': 390,  # Средний темп на лёгких (сек/км)
+                'max_hr_at_best': 175,     # Пульс при лучшем темпе
+            }
+        """
+        from sqlalchemy import func, and_
+        from ..database.db import Training
+        from datetime import timedelta
+        from ..utils import time_utils
+
+        result = {
+            'best_pace_sec': None,
+            'avg_easy_pace_sec': None,
+            'max_hr_at_best': None,
+        }
+
+        four_weeks_ago = time_utils.today() - timedelta(days=28)
+
+        with db.get_session() as session:
+            # Лучший темп за последние 4 недели (на тренировках 5+ км)
+            trainings = session.query(
+                Training.distance_km,
+                Training.duration_min,
+                Training.max_hr
+            ).filter(
+                Training.user_id == self.user_id,
+                Training.type == 'actual',
+                Training.date >= four_weeks_ago,
+                Training.distance_km >= 5,
+                Training.duration_min.isnot(None),
+                Training.duration_min > 0
+            ).all()
+
+            if trainings:
+                paces = []
+                for t in trainings:
+                    pace_sec = (t.duration_min * 60) / t.distance_km
+                    paces.append({
+                        'pace_sec': pace_sec,
+                        'max_hr': t.max_hr
+                    })
+
+                if paces:
+                    # Лучший темп
+                    best = min(paces, key=lambda x: x['pace_sec'])
+                    result['best_pace_sec'] = int(best['pace_sec'])
+                    result['max_hr_at_best'] = best['max_hr']
+
+                    # Средний темп (медиана для лёгких тренировок)
+                    all_paces = sorted([p['pace_sec'] for p in paces])
+                    # Берём медиану как "типичный лёгкий темп"
+                    result['avg_easy_pace_sec'] = int(all_paces[len(all_paces) // 2])
+
+        logger.info(
+            f"User {self.user_id}: реальные темпы — "
+            f"лучший {self._format_pace(result['best_pace_sec']) if result['best_pace_sec'] else 'N/A'}, "
+            f"лёгкий {self._format_pace(result['avg_easy_pace_sec']) if result['avg_easy_pace_sec'] else 'N/A'}"
+        )
+
+        return result
+
+    def _validate_paces(self) -> Dict[str, str]:
+        """
+        Валидировать VDOT-темпы по реальным данным.
+
+        Логика:
+        - Если VDOT-темп быстрее реального лучшего темпа — скорректировать
+        - Интервальный темп не может быть быстрее (лучший_темп - 30 сек)
+        - Easy темп не может быть быстрее реального среднего
+
+        Returns:
+            Скорректированные темпы в формате {"easy": "6:30", ...}
+        """
+        if not self.paces:
+            return {}
+
+        validated = dict(self.paces)  # Копия
+
+        best_real = self.real_paces.get('best_pace_sec')
+        avg_easy_real = self.real_paces.get('avg_easy_pace_sec')
+
+        if not best_real or not avg_easy_real:
+            # Нет данных — используем VDOT без изменений
+            return validated
+
+        # Получаем VDOT-темпы в секундах
+        if self.vdot:
+            vdot_paces_sec = get_training_paces_seconds(self.vdot)
+        else:
+            return validated
+
+        corrections_made = []
+
+        # 1. Интервальный темп: не быстрее чем (лучший_реальный - 30 сек)
+        # Логика: интервальный темп должен быть достижимым, но с запасом
+        min_interval_pace = best_real - 30  # Максимум на 30 сек быстрее лучшего
+        if vdot_paces_sec['interval'] < min_interval_pace:
+            corrected = min_interval_pace
+            validated['interval'] = self._format_pace(corrected)
+            corrections_made.append(f"interval: {self._format_pace(vdot_paces_sec['interval'])} → {validated['interval']}")
+
+        # 2. Пороговый темп: не быстрее чем (лучший_реальный - 15 сек)
+        min_threshold_pace = best_real - 15
+        if vdot_paces_sec['threshold'] < min_threshold_pace:
+            corrected = min_threshold_pace
+            validated['threshold'] = self._format_pace(corrected)
+            corrections_made.append(f"threshold: {self._format_pace(vdot_paces_sec['threshold'])} → {validated['threshold']}")
+
+        # 3. Easy темп: не быстрее реального среднего
+        if vdot_paces_sec['easy'] < avg_easy_real:
+            corrected = avg_easy_real
+            validated['easy'] = self._format_pace(corrected)
+            validated['easy_range'] = f"{self._format_pace(corrected)} - {self._format_pace(int(corrected * 1.1))}"
+            corrections_made.append(f"easy: {self._format_pace(vdot_paces_sec['easy'])} → {validated['easy']}")
+
+        # 4. Марафонский темп: между easy и threshold
+        # Не быстрее чем (threshold + 30 сек)
+        threshold_sec = self._pace_to_seconds(validated.get('threshold', self.paces['threshold']))
+        if vdot_paces_sec['marathon'] < threshold_sec + 30:
+            corrected = threshold_sec + 30
+            validated['marathon'] = self._format_pace(corrected)
+            corrections_made.append(f"marathon: {self._format_pace(vdot_paces_sec['marathon'])} → {validated['marathon']}")
+
+        # 5. Проверка связи темп-пульс
+        # Если при лучшем темпе пульс уже был высокий (≥170) — интервальный темп должен быть консервативнее
+        max_hr_at_best = self.real_paces.get('max_hr_at_best')
+        if max_hr_at_best and max_hr_at_best >= 170:
+            # Пользователь уже был на высоком пульсе при лучшем темпе
+            # Интервальный темп не должен быть быстрее лучшего (нет запаса)
+            current_interval = self._pace_to_seconds(validated.get('interval', ''))
+            if current_interval and current_interval < best_real:
+                validated['interval'] = self._format_pace(best_real)
+                corrections_made.append(
+                    f"interval (по пульсу {max_hr_at_best}): "
+                    f"{self._format_pace(current_interval)} → {validated['interval']}"
+                )
+
+            # LTHR проверка: если есть LTHR и max_hr_at_best близок к нему — осторожнее
+            if self.lthr and max_hr_at_best >= self.lthr * 0.95:
+                # Пользователь был на пороге или выше
+                # Добавляем ещё 15 сек к интервальному темпу
+                current = self._pace_to_seconds(validated.get('interval', ''))
+                if current:
+                    validated['interval'] = self._format_pace(current + 15)
+                    corrections_made.append(f"interval (LTHR коррекция): +15 сек")
+
+        if corrections_made:
+            logger.warning(
+                f"User {self.user_id}: темпы скорректированы по реальным данным: {', '.join(corrections_made)}"
+            )
+
+        return validated
+
+    def _format_pace(self, seconds_per_km: int) -> str:
+        """Форматирование темпа в mm:ss"""
+        if not seconds_per_km:
+            return "N/A"
+        minutes = seconds_per_km // 60
+        seconds = seconds_per_km % 60
+        return f"{minutes}:{seconds:02d}"
+
+    def _pace_to_seconds(self, pace_str: str) -> int:
+        """Конвертация темпа mm:ss в секунды"""
+        if not pace_str or pace_str == "N/A":
+            return 0
+        try:
+            parts = pace_str.replace('/км', '').split(':')
+            return int(parts[0]) * 60 + int(parts[1])
+        except (ValueError, IndexError):
+            return 0
+
     def generate_detailed_plan(self, goal_distance: int, goal_date: date, training_days: List[int],
                                time_per_session: int, weeks: int = 4, goal_type: str = 'race',
                                fitness_level: str = None) -> List[Dict[str, Any]]:
@@ -552,18 +733,20 @@ class PlanGenerator:
         return details
 
     def _get_pace_info(self, workout_type: str) -> str:
-        """Получить информацию о темпе по VDOT"""
-        if not self.paces:
+        """Получить информацию о темпе (валидированном по реальным данным)"""
+        # Используем валидированные темпы если есть, иначе VDOT
+        paces = self.validated_paces if self.validated_paces else self.paces
+        if not paces:
             return ""
 
         pace_mapping = {
-            'easy': f"Темп: {self.paces['easy_range']}/км",
-            'recovery': f"Темп: медленнее {self.paces['easy']}/км",
-            'long': f"Темп: {self.paces['easy_range']}/км",
-            'tempo': f"Темп: {self.paces['threshold']}/км",
-            'threshold': f"Темп: {self.paces['threshold']}/км",
-            'intervals': f"Темп интервалов: {self.paces['interval']}/км",
-            'vo2max': f"Темп интервалов: {self.paces['interval']}/км",
+            'easy': f"Темп: {paces.get('easy_range', paces.get('easy', 'N/A'))}/км",
+            'recovery': f"Темп: медленнее {paces.get('easy', 'N/A')}/км",
+            'long': f"Темп: {paces.get('easy_range', paces.get('easy', 'N/A'))}/км",
+            'tempo': f"Темп: {paces.get('threshold', 'N/A')}/км",
+            'threshold': f"Темп: {paces.get('threshold', 'N/A')}/км",
+            'intervals': f"Темп интервалов: {paces.get('interval', 'N/A')}/км",
+            'vo2max': f"Темп интервалов: {paces.get('interval', 'N/A')}/км",
         }
         return pace_mapping.get(workout_type, "")
 
@@ -643,18 +826,31 @@ class PlanGenerator:
             distance_m = template['work_distance_m']
             rest_m = template.get('rest_distance_m', 200)
 
-            # Получаем темп из VDOT (персонализированный)
+            # Получаем темп (валидированный по реальным данным)
             pace_zone = template.get('pace_zone', 'I')
-            if self.vdot:
-                from .vdot_calculator import get_training_paces_seconds
-                paces_sec = get_training_paces_seconds(self.vdot)
-                if pace_zone == 'R':
-                    pace_sec_per_km = paces_sec['repetition']
-                elif pace_zone == 'T':
-                    pace_sec_per_km = paces_sec['threshold']
-                else:  # I по умолчанию
-                    pace_sec_per_km = paces_sec['interval']
+            if self.validated_paces or self.vdot:
+                # Сначала пробуем валидированные темпы
+                if self.validated_paces:
+                    if pace_zone == 'R':
+                        pace_sec_per_km = self._pace_to_seconds(self.validated_paces.get('repetition', ''))
+                    elif pace_zone == 'T':
+                        pace_sec_per_km = self._pace_to_seconds(self.validated_paces.get('threshold', ''))
+                    else:  # I по умолчанию
+                        pace_sec_per_km = self._pace_to_seconds(self.validated_paces.get('interval', ''))
+
+                # Если валидированные не сработали — используем VDOT
+                if not pace_sec_per_km and self.vdot:
+                    paces_sec = get_training_paces_seconds(self.vdot)
+                    if pace_zone == 'R':
+                        pace_sec_per_km = paces_sec['repetition']
+                    elif pace_zone == 'T':
+                        pace_sec_per_km = paces_sec['threshold']
+                    else:
+                        pace_sec_per_km = paces_sec['interval']
             else:
+                pace_sec_per_km = None
+
+            if not pace_sec_per_km:
                 # Fallback на расчёт из шаблона (если VDOT не задан)
                 time_range = template.get('work_time_range_sec', (60, 120))
                 work_time_sec = (time_range[0] + time_range[1]) // 2
