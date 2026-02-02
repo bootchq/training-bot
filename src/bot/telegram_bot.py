@@ -2479,6 +2479,7 @@ class TrainingBot:
             BotCommand("stats", "Статистика за неделю/месяц"),
             BotCommand("records", "Персональные рекорды"),
             BotCommand("plan", "План тренировок на неделю"),
+            BotCommand("zones", "Пульсовые зоны"),
             BotCommand("calendar", "Скачать план для календаря"),
         ]
 
