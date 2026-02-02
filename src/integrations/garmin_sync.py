@@ -335,7 +335,7 @@ class GarminSync:
         """
         logger.info(f"Начинаю синхронизацию 60 дней для user_id={user_id}")
 
-        # Получаем LTHR
+        # Получаем LTHR из Garmin (тест лактатного порога)
         lthr = self.get_lactate_threshold()
 
         # Получаем персональные рекорды
@@ -350,8 +350,43 @@ class GarminSync:
             saved = self.sync_date(user_id, target_date)
             total_saved += saved
 
+        # Если LTHR не получен из Garmin — рассчитываем по max HR из тренировок
+        if not lthr:
+            lthr = self._estimate_lthr_from_trainings(user_id)
+
         logger.info(f"Синхронизация завершена: {total_saved} тренировок, LTHR={lthr}, PR={len(personal_records)}")
         return total_saved, lthr, personal_records
+
+    def _estimate_lthr_from_trainings(self, user_id: int) -> Optional[int]:
+        """
+        Оценка LTHR по max HR из тренировок (fallback если Garmin не отдаёт LTHR)
+
+        Формула: LTHR ≈ 85% от max HR (Joe Friel)
+
+        Args:
+            user_id: ID пользователя
+
+        Returns:
+            Оценочный LTHR или None
+        """
+        from ..database.db import db
+
+        trainings = db.get_user_trainings(user_id, limit=60)
+        if not trainings:
+            return None
+
+        # Находим максимальный пульс из всех тренировок
+        max_hrs = [t.max_hr for t in trainings if t.max_hr and t.max_hr > 100]
+        if not max_hrs:
+            return None
+
+        max_hr = max(max_hrs)
+
+        # LTHR ≈ 85% от max HR (консервативная оценка по Joe Friel)
+        lthr = int(max_hr * 0.85)
+
+        logger.info(f"LTHR рассчитан по max HR: {lthr} уд/мин (max HR={max_hr})")
+        return lthr
 
     def sync_today(self, user_id: int) -> int:
         """
