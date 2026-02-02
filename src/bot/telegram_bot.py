@@ -146,6 +146,8 @@ class TrainingBot:
 в Garmin Connect.
 
 У тебя есть аккаунт Garmin?
+
+📬 Обратная связь: @bootchq
 """
             await update.message.reply_text(welcome_text, reply_markup=reply_markup)
             logger.info(f"Новый пользователь {telegram_id}, запрос регистрации Garmin")
@@ -183,6 +185,7 @@ class TrainingBot:
             welcome_text += """
 
 Команды: /sync /stats /plan /calendar /zones /methodology
+📬 Обратная связь: @bootchq
 """
             # Inline кнопки для быстрого доступа
             keyboard = [
@@ -223,6 +226,8 @@ class TrainingBot:
 • Вечерний опрос самочувствия
 • Экспорт плана в календарь
 • Пропуск тренировок с адаптацией
+
+📬 Обратная связь: @bootchq
 """
         await update.message.reply_text(help_text)
 
