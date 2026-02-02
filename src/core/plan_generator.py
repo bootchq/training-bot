@@ -643,10 +643,23 @@ class PlanGenerator:
             distance_m = template['work_distance_m']
             rest_m = template.get('rest_distance_m', 200)
 
-            # Рассчитываем темп на км
-            time_range = template.get('work_time_range_sec', (60, 120))
-            work_time_sec = (time_range[0] + time_range[1]) // 2
-            pace_sec_per_km = int(work_time_sec * 1000 / distance_m)
+            # Получаем темп из VDOT (персонализированный)
+            pace_zone = template.get('pace_zone', 'I')
+            if self.vdot:
+                from .vdot_calculator import get_training_paces_seconds
+                paces_sec = get_training_paces_seconds(self.vdot)
+                if pace_zone == 'R':
+                    pace_sec_per_km = paces_sec['repetition']
+                elif pace_zone == 'T':
+                    pace_sec_per_km = paces_sec['threshold']
+                else:  # I по умолчанию
+                    pace_sec_per_km = paces_sec['interval']
+            else:
+                # Fallback на расчёт из шаблона (если VDOT не задан)
+                time_range = template.get('work_time_range_sec', (60, 120))
+                work_time_sec = (time_range[0] + time_range[1]) // 2
+                pace_sec_per_km = int(work_time_sec * 1000 / distance_m)
+
             pace_min = pace_sec_per_km // 60
             pace_sec = pace_sec_per_km % 60
             pace_formatted = f"{pace_min}:{pace_sec:02d}/км"
