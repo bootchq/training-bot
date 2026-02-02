@@ -1184,14 +1184,8 @@ class TrainingBot:
             existing_level = context.user_data.get('fitness_level')
 
             if existing_level:
-                # Уровень уже определён при синхронизации — сразу спрашиваем время
-                await query.message.reply_text(
-                    "⏱ Сколько времени у тебя на одну тренировку?\n\n"
-                    "Напиши в минутах (например: 60, 90, 120)\n"
-                    "Или диапазон времени (например: с 19 до 21)",
-                    parse_mode='Markdown'
-                )
-                context.user_data['awaiting_time'] = True
+                # Уровень уже определён при синхронизации — завершаем онбординг
+                await self._finish_onboarding(user.id, context, query.message)
             else:
                 # Пробуем автоопределить уровень (если синхронизация не прошла)
                 from ..core.fitness_detector import detect_fitness_level
@@ -1201,14 +1195,8 @@ class TrainingBot:
                 if detected_level:
                     db.save_user_goal(user.id, fitness_level=detected_level)
                     context.user_data['fitness_level'] = detected_level
-
-                    await query.message.reply_text(
-                        "⏱ Сколько времени у тебя на одну тренировку?\n\n"
-                        "Напиши в минутах (например: 60, 90, 120)\n"
-                        "Или диапазон времени (например: с 19 до 21)",
-                        parse_mode='Markdown'
-                    )
-                    context.user_data['awaiting_time'] = True
+                    # Завершаем онбординг
+                    await self._finish_onboarding(user.id, context, query.message)
                 else:
                     # Мало данных → спрашиваем уровень вручную
                     keyboard = [
@@ -2467,13 +2455,8 @@ class TrainingBot:
 
         logger.info(f"User {telegram_id} выбрал уровень подготовки: {level}")
 
-        # Спрашиваем время на тренировку
-        await query.message.reply_text(
-            "⏱ Сколько времени у тебя на одну тренировку?\n\n"
-            "Напиши в минутах (например: 60, 90, 120)\n"
-            "Или диапазон времени (например: с 19 до 21)"
-        )
-        context.user_data['awaiting_time'] = True
+        # Завершаем онбординг (время тренировки определяется автоматически по правилам)
+        await self._finish_onboarding(user.id, context, query.message)
 
     async def handle_level_selection(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Обработка выбора уровня подготовки и генерация плана"""
