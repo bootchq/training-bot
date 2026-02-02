@@ -544,6 +544,33 @@ class Database:
 
             return training
 
+    def get_user_trainings(self, user_id: int, limit: int = 60) -> List[Training]:
+        """
+        Получить последние тренировки пользователя
+
+        Args:
+            user_id: ID пользователя
+            limit: Максимальное количество тренировок
+
+        Returns:
+            Список тренировок
+        """
+        with self.get_session() as session:
+            trainings = session.query(Training).filter_by(
+                user_id=user_id,
+                type='actual'
+            ).order_by(Training.date.desc()).limit(limit).all()
+
+            # Загружаем атрибуты перед отсоединением
+            result = []
+            for t in trainings:
+                _ = (t.id, t.date, t.distance_km, t.duration_min,
+                     t.avg_hr, t.max_hr, t.hr_zones, t.avg_pace, t.elevation_m)
+                session.expunge(t)
+                result.append(t)
+
+            return result
+
     def get_plan_for_period(self, user_id: int, start_date, end_date) -> List[TrainingPlan]:
         """
         Получить план за период
