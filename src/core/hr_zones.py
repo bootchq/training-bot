@@ -1,10 +1,39 @@
 """
 Калькулятор зон пульса по LTHR (Joe Friel)
 
+=== ЧТО ТАКОЕ LTHR ===
 LTHR (Lactate Threshold Heart Rate) — пульс на лактатном пороге.
-Зоны рассчитываются как процент от LTHR.
+Это пульс, который можно удерживать ~60 минут на максимальном усилии.
 
 Источник: Joe Friel "The Triathlete's Training Bible"
+Гайд: https://www.trainingpeaks.com/learn/articles/joe-friel-s-quick-guide-to-setting-zones/
+
+=== КАК ОПРЕДЕЛИТЬ LTHR ===
+1. 30-минутный тест на максимум (Time Trial)
+2. Средний пульс последних 20 минут = LTHR
+3. Или: пульс на пороговом темпе (T-pace по Jack Daniels)
+
+=== ЗОНЫ ПО FRIEL ===
+- Z1 (Recovery): <81% LTHR — активное восстановление
+- Z2 (Aerobic): 81-89% LTHR — аэробная база, 80% тренировок
+- Z3 (Tempo): 90-93% LTHR — темповая зона (минимизировать!)
+- Z4 (SubThreshold): 94-99% LTHR — пороговые интервалы
+- Z5a (SuperThreshold): 100-102% LTHR — надпороговые
+- Z5b (VO2max): 103-106% LTHR — интервалы VO2max
+- Z5c (Anaerobic): >106% LTHR — короткие ускорения
+
+=== ПРАВИЛО 80/20 ===
+- 80% времени в Z1-Z2 (лёгкие)
+- <10% в Z3 (минимизировать!)
+- 20% в Z4-Z5 (интенсивные)
+
+=== АЛЬТЕРНАТИВА: ЗОНЫ ПО MAX HR ===
+Если LTHR неизвестен:
+- Z1: 50-60% HRmax
+- Z2: 60-70% HRmax
+- Z3: 70-80% HRmax
+- Z4: 80-90% HRmax
+- Z5: 90-100% HRmax
 """
 from typing import Dict
 from typing import Optional
@@ -166,16 +195,15 @@ def get_workout_hr_description(workout_type: str, lthr: Optional[int]) -> str:
         Описание целевого пульса
     """
     if lthr:
-        hr_range = format_hr_range_for_workout(workout_type, lthr)
-        return f"Пульс: {hr_range}"
+        return format_hr_range_for_workout(workout_type, lthr)
     else:
-        # Общие рекомендации без персонализации
+        # Общие рекомендации без персонализации (без префикса "Пульс:")
         descriptions = {
-            'recovery': 'Пульс: очень легко, можешь спокойно разговаривать',
-            'easy': 'Пульс: разговорный темп, дыхание ровное',
-            'long': 'Пульс: разговорный темп, комфортно на протяжении всей тренировки',
-            'tempo': 'Пульс: комфортно тяжело, короткие фразы',
-            'threshold': 'Пульс: тяжело, только отдельные слова',
-            'intervals': 'Пульс: тяжело во время интервала, восстановление между',
+            'recovery': 'очень легко, можешь спокойно разговаривать',
+            'easy': 'разговорный темп, дыхание ровное',
+            'long': 'разговорный темп, комфортно на протяжении всей тренировки',
+            'tempo': 'комфортно тяжело, короткие фразы',
+            'threshold': 'тяжело, только отдельные слова',
+            'intervals': 'тяжело во время интервала, восстановление между',
         }
-        return descriptions.get(workout_type, 'Пульс: по ощущениям')
+        return descriptions.get(workout_type, 'по ощущениям')

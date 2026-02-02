@@ -817,7 +817,11 @@ class PlanGenerator:
         )
 
         if hr_info:
-            description += f"\n- Пульс: ниже {hr_info.split('-')[0]} уд/мин"
+            # Если есть числовой диапазон (LTHR), берём нижнюю границу
+            if '-' in hr_info and hr_info.split('-')[0].isdigit():
+                description += f"\n- Пульс: ниже {hr_info.split('-')[0]} уд/мин"
+            else:
+                description += f"\n- Пульс: {hr_info}"
 
         description += "\n\n💡 Это не тренировка — это восстановление. Беги максимально легко\n⚠️ Если чувствуешь усталость — лучше пройтись или отдохнуть"
 
