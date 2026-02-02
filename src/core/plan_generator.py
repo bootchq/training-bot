@@ -643,12 +643,15 @@ class PlanGenerator:
             distance_m = template['work_distance_m']
             rest_m = template.get('rest_distance_m', 200)
 
-            # Форматируем время работы
+            # Рассчитываем темп на км
             time_range = template.get('work_time_range_sec', (60, 120))
             work_time_sec = (time_range[0] + time_range[1]) // 2
-            work_time_formatted = f"{work_time_sec // 60}:{work_time_sec % 60:02d}" if work_time_sec >= 60 else f"{work_time_sec} сек"
+            pace_sec_per_km = int(work_time_sec * 1000 / distance_m)
+            pace_min = pace_sec_per_km // 60
+            pace_sec = pace_sec_per_km % 60
+            pace_formatted = f"{pace_min}:{pace_sec:02d}/км"
 
-            main_description = f"{reps}× {distance_m}м за ~{work_time_formatted} + {rest_m}м трусцой"
+            main_description = f"{reps}× {distance_m}м в темпе {pace_formatted} + {rest_m}м трусцой"
 
         elif 'work_time_min' in template:
             # Интервалы по времени (5 мин)
