@@ -1621,7 +1621,7 @@ class TrainingBot:
                 else:
                     result_lines.append(f"- VDOT: {vdot:.0f} (по {vdot_source})")
 
-            # При регистрации — определяем уровень и показываем кнопки
+            # При регистрации/онбординге — определяем уровень и показываем кнопки
             if is_registration:
                 from ..core.fitness_detector import detect_fitness_level, format_level_with_evidence
 
@@ -1631,6 +1631,10 @@ class TrainingBot:
                     context.user_data['fitness_level'] = detected_level
                     level_names = {"beginner": "Новичок", "intermediate": "Средний", "advanced": "Опытный"}
                     result_lines.append(f"- Уровень: {level_names.get(detected_level, detected_level)}")
+
+                    # Добавляем анализ уровня в то же сообщение
+                    level_evidence = format_level_with_evidence(user.id, detected_level, level_stats)
+                    result_lines.append(f"\n{level_evidence}")
 
                 result_lines.append("\n▶️ Настроим план тренировок")
 
@@ -1647,11 +1651,6 @@ class TrainingBot:
                     parse_mode='Markdown',
                     reply_markup=reply_markup
                 )
-
-                # Отправляем отдельное сообщение с доказательствами уровня
-                if detected_level:
-                    level_evidence_text = format_level_with_evidence(user.id, detected_level, level_stats)
-                    await message.reply_text(level_evidence_text, parse_mode='Markdown')
             else:
                 # Обычная синхронизация — просто результат
                 await status_message.edit_text("\n".join(result_lines), parse_mode='Markdown')
