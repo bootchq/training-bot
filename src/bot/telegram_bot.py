@@ -1180,24 +1180,12 @@ class TrainingBot:
             goal_type = context.user_data.get('goal_type', 'fitness')
             db.save_user_goal(user.id, goal_type=goal_type, training_days=[f"day_{d}" for d in selected_days])
 
-            # Пробуем автоопределить уровень по данным Garmin
-            from ..core.fitness_detector import detect_fitness_level
+            # Проверяем есть ли уже определённый уровень (из синхронизации)
+            existing_level = context.user_data.get('fitness_level')
 
-            detected_level, level_stats = detect_fitness_level(user.id)
-
-            if detected_level:
-                # Уровень определён — сохраняем и переходим к времени
-                db.save_user_goal(user.id, fitness_level=detected_level)
-                context.user_data['fitness_level'] = detected_level
-
-                level_names = {"beginner": "Новичок", "intermediate": "Средний", "advanced": "Опытный"}
-                level_display = level_names.get(detected_level, detected_level)
-
+            if existing_level:
+                # Уровень уже определён при синхронизации — сразу спрашиваем время
                 await query.message.reply_text(
-                    f"📊 По твоим данным из Garmin:\n"
-                    f"• Стаж бега: {level_stats.get('running_months', '?')} месяцев\n"
-                    f"• Объём: ~{level_stats.get('weekly_distance_km', '?')} км/нед\n\n"
-                    f"✅ Определил уровень: **{level_display}**\n\n"
                     "⏱ Сколько времени у тебя на одну тренировку?\n\n"
                     "Напиши в минутах (например: 60, 90, 120)\n"
                     "Или диапазон времени (например: с 19 до 21)",
@@ -1205,19 +1193,36 @@ class TrainingBot:
                 )
                 context.user_data['awaiting_time'] = True
             else:
-                # Мало данных → спрашиваем уровень вручную
-                keyboard = [
-                    [InlineKeyboardButton("🟢 Новичок в беге        ", callback_data="level_onboarding_beginner")],
-                    [InlineKeyboardButton("🟡 Средний уровень       ", callback_data="level_onboarding_intermediate")],
-                    [InlineKeyboardButton("🔴 Опытный бегун         ", callback_data="level_onboarding_advanced")]
-                ]
+                # Пробуем автоопределить уровень (если синхронизация не прошла)
+                from ..core.fitness_detector import detect_fitness_level
 
-                await query.message.reply_text(
-                    "🏃 Какой у тебя опыт в беге?\n\n"
-                    "Недостаточно данных в Garmin для автоматического определения.\n"
-                    "Это нужно чтобы подобрать правильный объём и интенсивность.",
-                    reply_markup=InlineKeyboardMarkup(keyboard)
-                )
+                detected_level, level_stats = detect_fitness_level(user.id)
+
+                if detected_level:
+                    db.save_user_goal(user.id, fitness_level=detected_level)
+                    context.user_data['fitness_level'] = detected_level
+
+                    await query.message.reply_text(
+                        "⏱ Сколько времени у тебя на одну тренировку?\n\n"
+                        "Напиши в минутах (например: 60, 90, 120)\n"
+                        "Или диапазон времени (например: с 19 до 21)",
+                        parse_mode='Markdown'
+                    )
+                    context.user_data['awaiting_time'] = True
+                else:
+                    # Мало данных → спрашиваем уровень вручную
+                    keyboard = [
+                        [InlineKeyboardButton("🟢 Новичок в беге        ", callback_data="level_onboarding_beginner")],
+                        [InlineKeyboardButton("🟡 Средний уровень       ", callback_data="level_onboarding_intermediate")],
+                        [InlineKeyboardButton("🔴 Опытный бегун         ", callback_data="level_onboarding_advanced")]
+                    ]
+
+                    await query.message.reply_text(
+                        "🏃 Какой у тебя опыт в беге?\n\n"
+                        "Недостаточно данных в Garmin для автоматического определения.\n"
+                        "Это нужно чтобы подобрать правильный объём и интенсивность.",
+                        reply_markup=InlineKeyboardMarkup(keyboard)
+                    )
             return
 
         # Toggle дня
@@ -1629,10 +1634,8 @@ class TrainingBot:
                 if detected_level:
                     db.save_user_goal(user.id, fitness_level=detected_level)
                     context.user_data['fitness_level'] = detected_level
-                    level_names = {"beginner": "Новичок", "intermediate": "Средний", "advanced": "Опытный"}
-                    result_lines.append(f"- Уровень: {level_names.get(detected_level, detected_level)}")
 
-                    # Добавляем анализ уровня в то же сообщение
+                    # Добавляем анализ уровня (уровень указан внутри)
                     level_evidence = format_level_with_evidence(user.id, detected_level, level_stats)
                     result_lines.append(f"\n{level_evidence}")
 
