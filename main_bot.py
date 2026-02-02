@@ -47,7 +47,10 @@ async def run_bot():
         await bot.register_commands()
         logger.info("✅ Команды зарегистрированы")
 
-        await bot.app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        await bot.app.updater.start_polling(
+            allowed_updates=Update.ALL_TYPES,
+            drop_pending_updates=True  # Избегаем конфликта при редеплое
+        )
 
         # Держим бота запущенным
         try:

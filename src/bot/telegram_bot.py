@@ -2574,7 +2574,10 @@ class TrainingBot:
 
             self.app.post_init = post_init
 
-            self.app.run_polling(allowed_updates=Update.ALL_TYPES)
+            self.app.run_polling(
+                allowed_updates=Update.ALL_TYPES,
+                drop_pending_updates=True  # Избегаем конфликта при редеплое
+            )
         except Exception as e:
             logger.error(f"❌ Ошибка подключения к Telegram API: {e}")
             raise
