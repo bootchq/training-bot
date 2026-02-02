@@ -79,6 +79,7 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("reset", self.reset_user))
         self.app.add_handler(CommandHandler("zones", self.zones_command))
         self.app.add_handler(CommandHandler("methodology", self.methodology_command))
+        self.app.add_handler(CommandHandler("admin", self.admin_command))
 
         # ВАЖНО: Standalone CallbackQueryHandlers ДО ConversationHandlers
         # чтобы они не были заблокированы
@@ -230,6 +231,29 @@ class TrainingBot:
 📬 Обратная связь: @bootchq
 """
         await update.message.reply_text(help_text)
+
+    async def admin_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /admin — статистика для админа"""
+        telegram_id = update.effective_user.id
+
+        # Проверка доступа
+        if telegram_id != Config.ADMIN_TELEGRAM_ID:
+            await update.message.reply_text("⛔ Доступ запрещён")
+            return
+
+        # Получаем статистику
+        stats = db.get_admin_stats()
+
+        admin_text = f"""
+📊 Админ-панель
+
+👥 Всего пользователей: {stats['total_users']}
+✅ Завершили онбординг: {stats['onboarded_users']}
+🔗 С Garmin credentials: {stats['users_with_garmin']}
+🏃 Активных за неделю: {stats['active_last_week']}
+"""
+        await update.message.reply_text(admin_text)
+        logger.info(f"Admin {telegram_id} запросил статистику")
 
     async def zones_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /zones - показать персональные зоны пульса"""

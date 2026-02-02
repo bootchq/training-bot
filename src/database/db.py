@@ -1080,6 +1080,46 @@ class Database:
             logger.error(f"Ошибка отметки удаления напоминания: {e}")
             return False
 
+    def get_admin_stats(self) -> dict:
+        """
+        Получить статистику для админки
+
+        Returns:
+            dict с полями:
+            - total_users: всего пользователей
+            - users_with_garmin: с Garmin credentials
+            - active_last_week: активных за неделю (синхронизировали или смотрели статистику)
+        """
+        from datetime import datetime, timedelta
+        week_ago = datetime.now() - timedelta(days=7)
+
+        with self.get_session() as session:
+            # Всего пользователей
+            total_users = session.query(User).count()
+
+            # С Garmin credentials
+            users_with_garmin = session.query(User).filter(
+                User.garmin_email.isnot(None),
+                User.garmin_password.isnot(None)
+            ).count()
+
+            # Активные за неделю (есть тренировки за последние 7 дней)
+            active_user_ids = session.query(Training.user_id).filter(
+                Training.created_at >= week_ago
+            ).distinct().count()
+
+            # Завершили онбординг
+            onboarded_users = session.query(User).filter(
+                User.onboarding_completed == True
+            ).count()
+
+            return {
+                "total_users": total_users,
+                "users_with_garmin": users_with_garmin,
+                "active_last_week": active_user_ids,
+                "onboarded_users": onboarded_users
+            }
+
 
 # Глобальный экземпляр БД
 db = Database()

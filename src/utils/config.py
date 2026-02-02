@@ -18,6 +18,7 @@ class Config:
 
     # Telegram
     TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
+    ADMIN_TELEGRAM_ID = int(os.getenv("ADMIN_TELEGRAM_ID", "57186925"))
 
     # Garmin
     GARMIN_EMAIL = os.getenv("GARMIN_EMAIL")
