@@ -10,13 +10,6 @@ Wrapper для запуска разных сервисов в Railway
 import os
 import sys
 
-# Проверка на одноразовую миграцию
-if os.getenv('RUN_MIGRATION') == 'true':
-    print("🔄 Запуск миграции SQLite → PostgreSQL...")
-    import migrate_sqlite_to_postgres
-    success = migrate_sqlite_to_postgres.migrate_data()
-    sys.exit(0 if success else 1)
-
 SERVICE_NAME = os.getenv('SERVICE_NAME', 'bot')
 
 if SERVICE_NAME == 'bot':
