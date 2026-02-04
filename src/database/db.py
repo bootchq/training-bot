@@ -5,6 +5,7 @@ from typing import List
 from typing import Optional
 
 from sqlalchemy import JSON
+from sqlalchemy import BigInteger
 from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import Date
@@ -14,6 +15,7 @@ from sqlalchemy import Index
 from sqlalchemy import Integer
 from sqlalchemy import String
 from sqlalchemy import create_engine
+from sqlalchemy import text
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker
 
@@ -28,7 +30,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    telegram_id = Column(Integer, unique=True, nullable=False, index=True)
+    telegram_id = Column(BigInteger, unique=True, nullable=False, index=True)
     garmin_email = Column(String, nullable=True)
     garmin_password = Column(String, nullable=True)
     # Strava OAuth
@@ -235,11 +237,35 @@ class Database:
         self._migrate_existing_tables()
         logger.info("✅ Проверка миграции завершена")
 
+    def _migrate_postgres_types(self):
+        """Миграция типов колонок для PostgreSQL"""
+        try:
+            with self.engine.begin() as conn:
+                # Проверяем тип колонки telegram_id
+                result = conn.execute(text("""
+                    SELECT data_type
+                    FROM information_schema.columns
+                    WHERE table_name = 'users'
+                    AND column_name = 'telegram_id'
+                """))
+                row = result.fetchone()
+
+                if row and row[0] == 'integer':
+                    logger.info("➕ Изменяю тип telegram_id: INTEGER → BIGINT")
+                    conn.execute(text("ALTER TABLE users ALTER COLUMN telegram_id TYPE BIGINT"))
+                    logger.info("✅ Миграция типа telegram_id выполнена")
+                else:
+                    logger.debug("✅ Тип telegram_id актуален (BIGINT)")
+
+        except Exception as e:
+            logger.error(f"❌ Ошибка при миграции типов PostgreSQL: {e}")
+            # Не падаем - возможно таблица ещё не создана
+
     def _migrate_existing_tables(self):
         """Миграция существующих таблиц (добавление новых полей)"""
-        # Для PostgreSQL миграции не нужны (схема создаётся SQLAlchemy)
+        # Для PostgreSQL - только изменение типов колонок
         if self.is_postgres:
-            logger.info("PostgreSQL: миграции не требуются")
+            self._migrate_postgres_types()
             return
 
         import sqlite3
