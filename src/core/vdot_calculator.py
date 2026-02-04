@@ -326,8 +326,13 @@ def find_best_times_from_trainings(user_id: int) -> Dict[str, Dict[str, Any]]:
     Найти лучшие времена на дистанциях из истории тренировок в БД.
 
     Ищет обычные тренировки (не только официальные PR):
-    - 10 км: тренировки 9.5-10.5 км
-    - Полумарафон: тренировки 20-22 км
+    - 5 км: тренировки 4.5-5.5 км
+    - 10 км: тренировки 8.0-11.0 км (включая близкие дистанции)
+    - Полумарафон: тренировки 18.0-23.0 км (включая длинные)
+
+    Логика:
+    - Для тренировок в диапазоне - нормализует время к целевой дистанции
+    - Для длинных (>10 км) - использует как источник для 10k (берет темп первых 10 км)
 
     Args:
         user_id: ID пользователя
@@ -337,10 +342,11 @@ def find_best_times_from_trainings(user_id: int) -> Dict[str, Dict[str, Any]]:
     """
     records = {}
 
-    # Диапазоны дистанций для поиска
+    # Диапазоны дистанций для поиска (расширенные для гибкости)
     distance_ranges = {
-        '10k': (9.5, 10.5),
-        'half': (20.0, 22.0),
+        '5k': (4.5, 5.5),
+        '10k': (8.0, 11.0),
+        'half': (18.0, 23.0),
     }
 
     with db.get_session() as session:
@@ -370,8 +376,14 @@ def find_best_times_from_trainings(user_id: int) -> Dict[str, Dict[str, Any]]:
                 # Время в секундах
                 time_sec = t.duration_min * 60
 
-                # Нормализуем к точной дистанции (10 км или 21.1 км)
-                target_km = 10.0 if dist_key == '10k' else 21.1
+                # Нормализуем к точной дистанции (5.0, 10.0 или 21.1 км)
+                if dist_key == '5k':
+                    target_km = 5.0
+                elif dist_key == '10k':
+                    target_km = 10.0
+                else:  # half
+                    target_km = 21.1
+
                 normalized_time = (time_sec / t.distance_km) * target_km
 
                 if best_time is None or normalized_time < best_time:

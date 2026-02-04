@@ -364,6 +364,7 @@ class GarminSync:
 
         # Получаем LTHR из Garmin (тест лактатного порога)
         lthr = self.get_lactate_threshold()
+        lthr_source = "garmin" if lthr else None
 
         # Получаем персональные рекорды
         personal_records = self.get_personal_records()
@@ -380,8 +381,12 @@ class GarminSync:
         # Если LTHR не получен из Garmin — рассчитываем по max HR из тренировок
         if not lthr:
             lthr = self._estimate_lthr_from_trainings(user_id)
+            lthr_source = "estimated" if lthr else None
 
-        logger.info(f"Синхронизация завершена: {total_saved} тренировок, LTHR={lthr}, PR={len(personal_records)}")
+        logger.info(
+            f"Синхронизация завершена: {total_saved} тренировок, "
+            f"LTHR={lthr} (источник: {lthr_source}), PR={len(personal_records)}"
+        )
         return total_saved, lthr, personal_records
 
     def _estimate_lthr_from_trainings(self, user_id: int) -> Optional[int]:

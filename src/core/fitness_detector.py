@@ -104,7 +104,7 @@ def detect_fitness_level(user_id: int) -> Tuple[Optional[str], dict]:
     vdot = None
     vdot_source = None
 
-    # Выбираем лучший VDOT (10k обычно точнее)
+    # Выбираем лучший VDOT (приоритет: 10k > half > 5k)
     if '10k' in best_times:
         vdot_10k = calculate_vdot_from_time('10k', best_times['10k']['time_seconds'])
         if vdot_10k:
@@ -116,6 +116,13 @@ def detect_fitness_level(user_id: int) -> Tuple[Optional[str], dict]:
         if vdot_half and (vdot is None or vdot_half > vdot):
             vdot = vdot_half
             vdot_source = 'half'
+
+    # Fallback на 5k если 10k и half не найдены
+    if vdot is None and '5k' in best_times:
+        vdot_5k = calculate_vdot_from_time('5k', best_times['5k']['time_seconds'])
+        if vdot_5k:
+            vdot = vdot_5k
+            vdot_source = '5k'
 
     # Период данных (не стаж — это разные вещи)
     data_period_days = (last_date - first_date).days
@@ -289,17 +296,19 @@ def get_level_evidence(user_id: int) -> Dict[str, Any]:
                 "explanation": f"VDOT ≥40 → intermediate, ≥50 → advanced"
             })
         else:
-            # Проверяем есть ли тренировки близкие к 10к
+            # Проверяем есть ли тренировки в расширенном диапазоне (8-11 км)
             near_10k = session.query(Training).filter(
                 Training.user_id == user_id,
                 Training.type == 'actual',
                 Training.distance_km >= 8,
-                Training.distance_km < 9.5
+                Training.distance_km <= 11,
+                Training.duration_min.isnot(None),
+                Training.duration_min > 0
             ).count()
             if near_10k > 0:
-                missing.append(f"Есть {near_10k} тренировок 8-9.5 км, но нет 10 км для расчёта VDOT")
+                missing.append(f"Нет тренировок 8-11 км с корректным временем для расчёта VDOT")
             else:
-                missing.append("Нет тренировок 10 км для расчёта VDOT")
+                missing.append("Нет тренировок 8-11 км для расчёта VDOT (пробеги больше 8 км)")
 
         if 'half' in best_times:
             bt = best_times['half']

@@ -1599,7 +1599,14 @@ class TrainingBot:
             if lthr or vdot:
                 result_lines.append("\n**Физиологические данные:**")
                 if lthr:
-                    result_lines.append(f"- LTHR: {lthr} уд/мин")
+                    # Показываем max HR для контекста (чтобы понять откуда LTHR)
+                    recent_trainings = db.get_user_trainings(user.id, limit=60)
+                    max_hrs = [t.max_hr for t in recent_trainings if t.max_hr and t.max_hr > 100]
+                    if max_hrs:
+                        max_hr = max(max_hrs)
+                        result_lines.append(f"- LTHR: {lthr} уд/мин (макс. пульс: {max_hr} уд/мин)")
+                    else:
+                        result_lines.append(f"- LTHR: {lthr} уд/мин")
 
             # Проверяем рост VDOT
             vdot_changed = False
