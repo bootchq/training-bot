@@ -118,6 +118,10 @@ class WellnessSurvey(Base):
     pain_location = Column(String)
     sleep_quality = Column(String)
 
+    # Recovery Index
+    rhr = Column(Integer)  # Resting Heart Rate (утренний пульс покоя)
+    hrv = Column(Integer)  # Heart Rate Variability (вариабельность пульса)
+
     __table_args__ = (
         Index('ix_wellness_user_date', 'user_id', 'date'),
     )
@@ -149,6 +153,24 @@ class PersonalRecord(Base):
 
     __table_args__ = (
         Index('ix_pr_user_type', 'user_id', 'record_type'),
+    )
+
+
+class VdotHistory(Base):
+    """История изменения VDOT пользователя"""
+    __tablename__ = "vdot_history"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, nullable=False, index=True)
+    date = Column(Date, nullable=False, index=True)
+    vdot = Column(Float, nullable=False)
+    source = Column(String, nullable=False)  # "5k", "10k", "half", "marathon", "manual", "auto"
+    time_seconds = Column(Integer)  # Время результата в секундах (для race источников)
+    training_id = Column(Integer)  # ID тренировки, на основе которой рассчитан VDOT
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        Index('ix_vdot_user_date', 'user_id', 'date'),
     )
 
 
@@ -321,6 +343,16 @@ class Database:
             if plan_columns and 'goal' not in plan_columns:
                 logger.info("➕ Добавляю поле goal в таблицу training_plan")
                 cursor.execute("ALTER TABLE training_plan ADD COLUMN goal VARCHAR")
+                needs_migration = True
+
+            # Проверяем таблицу wellness_surveys (Recovery Index)
+            cursor.execute("PRAGMA table_info(wellness_surveys)")
+            wellness_columns = [col[1] for col in cursor.fetchall()]
+
+            if wellness_columns and 'rhr' not in wellness_columns:
+                logger.info("➕ Добавляю поля Recovery Index (rhr, hrv) в таблицу wellness_surveys")
+                cursor.execute("ALTER TABLE wellness_surveys ADD COLUMN rhr INTEGER")
+                cursor.execute("ALTER TABLE wellness_surveys ADD COLUMN hrv INTEGER")
                 needs_migration = True
 
             if needs_migration:
@@ -597,6 +629,119 @@ class Database:
 
             session.expunge_all()
             return plans
+
+    def get_trainings_for_period(self, user_id: int, start_date, end_date) -> List[Training]:
+        """
+        Получить фактические тренировки за период
+
+        Args:
+            user_id: ID пользователя
+            start_date: Начало периода
+            end_date: Конец периода
+
+        Returns:
+            Список фактических тренировок
+        """
+        with self.get_session() as session:
+            trainings = session.query(Training).filter(
+                Training.user_id == user_id,
+                Training.date >= start_date,
+                Training.date <= end_date
+            ).order_by(Training.date).all()
+
+            # Загружаем атрибуты
+            for t in trainings:
+                _ = (t.id, t.date, t.type, t.distance_km, t.duration_min,
+                     t.avg_pace, t.avg_hr, t.max_hr, t.elevation_m, t.hr_zones)
+
+            session.expunge_all()
+            return trainings
+
+    def get_wellness_for_period(self, user_id: int, start_date, end_date) -> List[WellnessSurvey]:
+        """
+        Получить опросы самочувствия за период
+
+        Args:
+            user_id: ID пользователя
+            start_date: Начало периода
+            end_date: Конец периода
+
+        Returns:
+            Список опросов самочувствия
+        """
+        with self.get_session() as session:
+            surveys = session.query(WellnessSurvey).filter(
+                WellnessSurvey.user_id == user_id,
+                WellnessSurvey.date >= start_date,
+                WellnessSurvey.date <= end_date
+            ).order_by(WellnessSurvey.date).all()
+
+            # Загружаем атрибуты
+            for s in surveys:
+                _ = (s.id, s.date, s.training_rating, s.wellness_rating,
+                     s.pain_reported, s.pain_location, s.sleep_quality, s.rhr, s.hrv)
+
+            session.expunge_all()
+            return surveys
+
+    def save_vdot_history(self, user_id: int, vdot: float, source: str,
+                          date=None, time_seconds=None, training_id=None):
+        """
+        Сохранить запись в истории VDOT
+
+        Args:
+            user_id: ID пользователя
+            vdot: Значение VDOT
+            source: Источник ("5k", "10k", "half", "marathon", "manual", "auto")
+            date: Дата (по умолчанию сегодня)
+            time_seconds: Время результата в секундах
+            training_id: ID тренировки
+        """
+        if date is None:
+            from datetime import date as date_class
+            date = date_class.today()
+
+        with self.get_session() as session:
+            history = VdotHistory(
+                user_id=user_id,
+                date=date,
+                vdot=vdot,
+                source=source,
+                time_seconds=time_seconds,
+                training_id=training_id
+            )
+            session.add(history)
+            session.commit()
+            logger.info(f"VDOT history saved: user={user_id}, vdot={vdot}, source={source}")
+
+    def get_vdot_history(self, user_id: int, start_date=None, end_date=None) -> List:
+        """
+        Получить историю VDOT пользователя
+
+        Args:
+            user_id: ID пользователя
+            start_date: Начало периода (опционально)
+            end_date: Конец периода (опционально)
+
+        Returns:
+            Список записей VdotHistory
+        """
+        with self.get_session() as session:
+            query = session.query(VdotHistory).filter(VdotHistory.user_id == user_id)
+
+            if start_date:
+                query = query.filter(VdotHistory.date >= start_date)
+            if end_date:
+                query = query.filter(VdotHistory.date <= end_date)
+
+            history = query.order_by(VdotHistory.date.desc()).all()
+
+            # Загружаем атрибуты
+            for h in history:
+                _ = (h.id, h.date, h.vdot, h.source, h.time_seconds, h.training_id)
+
+            session.expunge_all()
+            return history
 
     def update_training_plan(self, plan_id: int, **kwargs) -> bool:
         """

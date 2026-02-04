@@ -258,6 +258,20 @@ class ReminderScheduler:
 
         logger.info("✅ Настроена отправка еженедельных отчетов (понедельник 09:00)")
 
+    def schedule_weekly_state_analysis(self):
+        """Настроить еженедельный анализ состояния бегуна (runner_state)"""
+        # Отправка каждое воскресенье в 20:00 (подготовка к новой неделе)
+        trigger = CronTrigger(day_of_week=6, hour=20, minute=0, timezone='Europe/Moscow')
+
+        self.scheduler.add_job(
+            func=self._send_weekly_state_analysis,
+            trigger=trigger,
+            id="weekly_state_analysis",
+            replace_existing=True
+        )
+
+        logger.info("✅ Настроен еженедельный анализ состояния (воскресенье 20:00)")
+
     def _send_weekly_reports(self):
         """Отправить еженедельные отчеты всем пользователям"""
         from ..core.stats_calculator import StatsCalculator
@@ -327,6 +341,65 @@ class ReminderScheduler:
             except Exception as e:
                 logger.error(f"Ошибка отправки отчета для user={user.id}: {e}")
 
+    def _send_weekly_state_analysis(self):
+        """Отправить еженедельный анализ состояния всем пользователям (runner_state)"""
+        from ..core.plan_adapter import PlanAdapter
+
+        users = db.get_all_onboarded_users()
+
+        for user in users:
+            try:
+                # Получаем состояние бегуна за последние 4 недели
+                adapter = PlanAdapter(user.id)
+                state = adapter.get_runner_state()
+
+                # Получаем простой статус
+                simple = state.get_simple_status()
+
+                # Форматируем сообщение
+                message = f"📊 *Анализ за 4 недели*\n\n"
+                message += f"{simple['icon']} *{simple['message']}*\n"
+                message += f"_{simple['detail']}_\n\n"
+                message += "━━━━━━━━━━━━━━━━━━━━\n\n"
+
+                # Детали
+                message += f"📈 Объём: {state.volume.avg_weekly_km:.1f} км/неделя\n"
+                message += f"⚡ Интенсив: {state.intensity.intense_minutes_week} мин/неделя\n"
+
+                # Easy HR тренд
+                if state.response.easy_hr_baseline and state.response.easy_hr_current:
+                    hr_emoji = "🟢" if state.response.easy_hr_trend == "stable" else "🔴"
+                    message += f"{hr_emoji} Easy HR: {state.response.easy_hr_current} bpm"
+                    if state.response.easy_hr_delta_pct:
+                        delta_sign = "+" if state.response.easy_hr_delta_pct > 0 else ""
+                        message += f" ({delta_sign}{state.response.easy_hr_delta_pct:.1f}%)"
+                    message += "\n"
+
+                # Wellness
+                if state.response.wellness_avg:
+                    message += f"💪 Самочувствие: {state.response.wellness_avg:.1f}/10\n"
+
+                message += "\n"
+                message += f"💡 *Рекомендация на следующую неделю:*\n_{state.recommendation.reason}_\n\n"
+
+                # Если есть флаги - показываем
+                if state.diagnosis.flags:
+                    message += f"⚠️ Обрати внимание: {', '.join(state.diagnosis.flags)}\n"
+
+                # Отправляем анализ
+                import asyncio
+                try:
+                    loop = asyncio.get_event_loop()
+                except RuntimeError:
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+
+                loop.create_task(self.send_message(user.telegram_id, message))
+                logger.info(f"📊 Отправлен анализ состояния user={user.id}, status={state.diagnosis.status}")
+
+            except Exception as e:
+                logger.error(f"Ошибка отправки анализа состояния для user={user.id}: {e}")
+
     def shutdown(self):
         """Остановить планировщик"""
         self.scheduler.shutdown()
@@ -343,6 +416,7 @@ def init_reminder_scheduler(send_message_callback: Callable):
     reminder_scheduler = ReminderScheduler(send_message_callback)
     reminder_scheduler.schedule_missed_training_check()
     reminder_scheduler.schedule_weekly_report()
+    reminder_scheduler.schedule_weekly_state_analysis()
     return reminder_scheduler
 
 

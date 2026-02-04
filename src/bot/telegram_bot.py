@@ -71,6 +71,7 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("help", self.help_command))
         self.app.add_handler(CommandHandler("sync", self.sync))
         self.app.add_handler(CommandHandler("stats", self.stats))
+        self.app.add_handler(CommandHandler("state", self.state_command))
         self.app.add_handler(CommandHandler("records", self.records))
         self.app.add_handler(CommandHandler("plan", self.plan))
         self.app.add_handler(CommandHandler("calendar", self.calendar))
@@ -212,6 +213,7 @@ class TrainingBot:
 /start — Начало работы
 /sync — Синхронизация с Garmin (вручную)
 /plan — План тренировок на текущую неделю
+/state — Текущее состояние (анализ за 4 недели)
 /stats — Статистика за неделю
 /stats month — Статистика за месяц
 /calendar — Скачать план в ICS для календаря
@@ -222,6 +224,7 @@ class TrainingBot:
 • Автоматическая синхронизация Garmin
 • Персонализация по VDOT и LTHR
 • Адаптивный план тренировок
+• Предсказывающая адаптация (Safety First)
 • Вечерний опрос самочувствия
 • Экспорт плана в календарь
 
@@ -251,6 +254,55 @@ class TrainingBot:
 """
         await update.message.reply_text(admin_text)
         logger.info(f"Admin {telegram_id} запросил статистику")
+
+    async def state_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /state - показать текущее состояние бегуна за 4 недели"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        try:
+            # Создаем адаптер и получаем состояние
+            adapter = PlanAdapter(user.id)
+            state = adapter.get_runner_state()
+
+            # Получаем простой статус для beginner
+            simple = state.get_simple_status()
+
+            # Форматируем сообщение
+            message = f"{simple['icon']} *{simple['message']}*\n\n"
+            message += f"_{simple['detail']}_\n\n"
+            message += "━━━━━━━━━━━━━━━━━━━━\n\n"
+
+            # Краткая сводка за 4 недели
+            message += f"📊 *Анализ за 4 недели:*\n\n"
+            message += f"📈 Объём: {state.volume.avg_weekly_km:.1f} км/неделя\n"
+            message += f"⚡ Интенсив: {state.intensity.intense_minutes_week} мин/неделя ({state.intensity.actual_ratio*100:.0f}%)\n"
+
+            # Easy HR тренд (если есть)
+            if state.response.easy_hr_baseline and state.response.easy_hr_current:
+                hr_trend_icon = "🟢" if state.response.easy_hr_trend == "stable" else "🔴"
+                message += f"{hr_trend_icon} Easy HR: {state.response.easy_hr_current} bpm"
+                if state.response.easy_hr_delta_pct:
+                    delta_sign = "+" if state.response.easy_hr_delta_pct > 0 else ""
+                    message += f" ({delta_sign}{state.response.easy_hr_delta_pct:.1f}%)"
+                message += "\n"
+
+            # Wellness (если есть)
+            if state.response.wellness_avg:
+                message += f"💪 Самочувствие: {state.response.wellness_avg:.1f}/10\n"
+
+            message += "\n"
+            message += f"💡 *Рекомендация:*\n_{state.recommendation.reason}_"
+
+            await update.message.reply_text(message, parse_mode='Markdown')
+
+        except Exception as e:
+            logger.error(f"Ошибка получения runner_state: {e}", exc_info=True)
+            await update.message.reply_text(
+                "Не удалось получить состояние.\n\n"
+                "Возможно, недостаточно данных за последние 4 недели.\n"
+                "Используй /sync для синхронизации тренировок."
+            )
 
     async def zones_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /zones - показать персональные зоны пульса"""
@@ -2490,6 +2542,7 @@ class TrainingBot:
             BotCommand("help", "Помощь"),
             BotCommand("sync", "Синхронизация с Garmin"),
             BotCommand("stats", "Статистика за неделю/месяц"),
+            BotCommand("state", "Текущее состояние (анализ за 4 недели)"),
             BotCommand("records", "Персональные рекорды"),
             BotCommand("plan", "План тренировок на неделю"),
             BotCommand("zones", "Пульсовые зоны"),

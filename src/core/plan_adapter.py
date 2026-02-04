@@ -10,6 +10,7 @@ from ..database.db import Training
 from ..database.db import TrainingPlan
 from ..database.db import db
 from ..utils.logger import logger
+from .runner_state import RunnerState, RunnerStateCalculator, create_runner_state_calculator
 
 
 class PlanAdapter:
@@ -23,6 +24,7 @@ class PlanAdapter:
             user_id: ID пользователя
         """
         self.user_id = user_id
+        self._runner_state_calculator = create_runner_state_calculator(user_id)
 
     def analyze_day(self, target_date: date) -> Dict[str, Any]:
         """
@@ -64,6 +66,247 @@ class PlanAdapter:
             'plan': plan,
             'actual': actual
         }
+
+    def get_runner_state(self, as_of_date: Optional[date] = None) -> RunnerState:
+        """
+        Получить состояние бегуна (единый объект за 4 недели)
+
+        Args:
+            as_of_date: Дата, на которую рассчитывается состояние
+
+        Returns:
+            RunnerState объект
+        """
+        return self._runner_state_calculator.calculate(as_of_date)
+
+    def adapt_with_state(self, as_of_date: Optional[date] = None) -> Dict[str, Any]:
+        """
+        НОВАЯ ЛОГИКА: Адаптация на основе runner_state (предсказывающая)
+
+        Переход от "событие → реакция" к "тренд → диагноз → адаптация"
+
+        Philosophy: Safety First
+        - Безопасность > амбиции
+        - Паттерны > разовые события
+        - История = ограничитель
+
+        Args:
+            as_of_date: Дата анализа (по умолчанию сегодня)
+
+        Returns:
+            {
+                'status': str,  # progressing / stable / mild_fatigue / overreaching / danger
+                'runner_state': RunnerState,
+                'changes': List[str],
+                'recommendation': str
+            }
+        """
+        if as_of_date is None:
+            as_of_date = date.today()
+
+        # Получаем состояние бегуна
+        state = self.get_runner_state(as_of_date)
+
+        logger.info(f"RunnerState diagnosis: {state.diagnosis.status}, confidence: {state.diagnosis.confidence}")
+        logger.info(f"Recommendation: {state.recommendation.action} - {state.recommendation.reason}")
+
+        changes = []
+
+        # === DECISION STACK (Safety First) ===
+
+        # Уровень 1: БЛОКЕРЫ (критичные показатели)
+        if state.diagnosis.status == "danger":
+            changes = self._apply_danger_protocol(as_of_date, state)
+
+        # Уровень 2: ПЕРЕТРЕНИРОВАННОСТЬ
+        elif state.diagnosis.status == "overreaching":
+            changes = self._apply_deload_week(as_of_date, state)
+
+        # Уровень 3: ЛЁГКАЯ УСТАЛОСТЬ
+        elif state.diagnosis.status == "mild_fatigue":
+            changes = self._apply_reduce_10(as_of_date, state)
+
+        # Уровень 4: ПРОГРЕСС (можно продолжать/увеличить)
+        elif state.diagnosis.status == "progressing":
+            changes = self._apply_continue_or_increase(as_of_date, state)
+
+        # Уровень 5: СТАБИЛЬНО (удерживаем)
+        else:  # stable
+            changes = []
+            logger.info("Состояние стабильно, изменений не требуется")
+
+        return {
+            'status': state.diagnosis.status,
+            'runner_state': state,
+            'changes': changes,
+            'recommendation': state.recommendation.reason,
+            'simple_status': state.get_simple_status()  # Для beginner
+        }
+
+    def _apply_danger_protocol(self, from_date: date, state: RunnerState) -> List[str]:
+        """
+        Применить протокол при критичном состоянии
+
+        Args:
+            from_date: Начиная с какой даты
+            state: Состояние бегуна
+
+        Returns:
+            Список изменений
+        """
+        changes = []
+
+        # Заменяем все тренировки на следующей неделе на отдых
+        future = db.get_plan_for_period(
+            self.user_id,
+            from_date + timedelta(days=1),
+            from_date + timedelta(days=7)
+        )
+
+        for training in future:
+            db.update_training_plan(
+                training.id,
+                type='rest',
+                distance_km=0,
+                duration_min=0,
+                description=f"[КРИТИЧНО] Полный отдых. Причина: {', '.join(state.diagnosis.flags)}"
+            )
+            changes.append(f"{training.date.strftime('%d.%m')}: заменено на отдых")
+
+        logger.warning(f"DANGER protocol applied: {len(changes)} trainings replaced with rest")
+        return changes
+
+    def _apply_deload_week(self, from_date: date, state: RunnerState) -> List[str]:
+        """
+        Применить разгрузочную неделю (-25% объёма)
+
+        Args:
+            from_date: Начиная с какой даты
+            state: Состояние бегуна
+
+        Returns:
+            Список изменений
+        """
+        changes = []
+
+        # Снижаем нагрузку на следующей неделе на 25%
+        future = db.get_plan_for_period(
+            self.user_id,
+            from_date + timedelta(days=1),
+            from_date + timedelta(days=7)
+        )
+
+        for training in future:
+            updates = {}
+
+            if training.duration_min:
+                updates['duration_min'] = int(training.duration_min * 0.75)
+
+            if training.distance_km:
+                updates['distance_km'] = training.distance_km * 0.75
+
+            updates['description'] = f"[DELOAD] Снижено на 25%. Причина: {state.recommendation.reason}"
+
+            db.update_training_plan(training.id, **updates)
+            changes.append(f"{training.date.strftime('%d.%m')}: снижено на 25%")
+
+        logger.info(f"Deload week applied: {len(changes)} trainings reduced by 25%")
+        return changes
+
+    def _apply_reduce_10(self, from_date: date, state: RunnerState) -> List[str]:
+        """
+        Снизить нагрузку на 10%
+
+        Args:
+            from_date: Начиная с какой даты
+            state: Состояние бегуна
+
+        Returns:
+            Список изменений
+        """
+        changes = []
+
+        # Снижаем следующие 2-3 тренировки на 10%
+        future = db.get_plan_for_period(
+            self.user_id,
+            from_date + timedelta(days=1),
+            from_date + timedelta(days=10)
+        )
+
+        count = 0
+        for training in future[:3]:  # Только первые 3
+            updates = {}
+
+            if training.duration_min:
+                updates['duration_min'] = int(training.duration_min * 0.90)
+
+            if training.distance_km:
+                updates['distance_km'] = training.distance_km * 0.90
+
+            updates['description'] = f"[АДАПТИРОВАНО] Снижено на 10%. Причина: {state.recommendation.reason}"
+
+            db.update_training_plan(training.id, **updates)
+            changes.append(f"{training.date.strftime('%d.%m')}: снижено на 10%")
+            count += 1
+
+        logger.info(f"Reduce 10% applied: {count} trainings")
+        return changes
+
+    def _apply_continue_or_increase(self, from_date: date, state: RunnerState) -> List[str]:
+        """
+        Продолжить текущий план или аккуратно увеличить (Safety First)
+
+        Args:
+            from_date: Начиная с какой даты
+            state: Состояние бегуна
+
+        Returns:
+            Список изменений
+        """
+        changes = []
+
+        # Safety First: рост не более 5-10% от baseline
+        # И только если adherence > 85%
+        if state.adherence.plan_completion_pct < 85:
+            logger.info("Plan completion < 85%, не увеличиваем нагрузку")
+            return []
+
+        # Проверяем текущий недельный объём
+        future_week = db.get_plan_for_period(
+            self.user_id,
+            from_date + timedelta(days=1),
+            from_date + timedelta(days=7)
+        )
+
+        current_weekly_km = sum(t.distance_km for t in future_week if t.distance_km)
+
+        # Безопасный максимум
+        safe_max = state.recommendation.max_weekly_km
+
+        if safe_max and current_weekly_km < safe_max:
+            # Можно немного увеличить
+            increase_pct = min(0.05, (safe_max - current_weekly_km) / current_weekly_km)
+
+            for training in future_week:
+                if training.type in ['easy', 'long']:  # Увеличиваем только лёгкие
+                    updates = {}
+
+                    if training.duration_min:
+                        updates['duration_min'] = int(training.duration_min * (1 + increase_pct))
+
+                    if training.distance_km:
+                        updates['distance_km'] = training.distance_km * (1 + increase_pct)
+
+                    updates['description'] = f"[ПРОГРЕСС] Увеличено на {increase_pct*100:.0f}%. {state.recommendation.reason}"
+
+                    db.update_training_plan(training.id, **updates)
+                    changes.append(f"{training.date.strftime('%d.%m')}: увеличено на {increase_pct*100:.0f}%")
+
+            logger.info(f"Safe increase applied: {len(changes)} trainings increased by {increase_pct*100:.0f}%")
+        else:
+            logger.info(f"Current volume ({current_weekly_km:.1f} km) at safe limit ({safe_max:.1f} km), не увеличиваем")
+
+        return changes
 
     def _compare_training(self, plan: TrainingPlan, actual: Training) -> Dict[str, str]:
         """
