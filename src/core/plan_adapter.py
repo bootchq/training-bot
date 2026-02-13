@@ -427,8 +427,8 @@ class PlanAdapter:
         self,
         wellness_date: date,
         training_rating: int = 5,
-        wellness_rating: int = 2,
-        sleep_quality: str = 'ok',
+        wellness_rating: int = 3,
+        sleep_quality: str = '3',
         pain_reported: bool = False
     ) -> List[str]:
         """
@@ -436,9 +436,9 @@ class PlanAdapter:
 
         Args:
             wellness_date: Дата опроса
-            training_rating: Оценка тренировки (1-10)
-            wellness_rating: Самочувствие (1=усталость, 2=норма, 3=отлично)
-            sleep_quality: Качество сна (bad/ok/good)
+            training_rating: Оценка тренировки (1-10, RPE)
+            wellness_rating: Самочувствие (1-5, где 1=плохо, 5=отлично)
+            sleep_quality: Качество сна ("1"-"5" или legacy "bad"/"ok"/"good")
             pain_reported: Есть ли боль
 
         Returns:
@@ -452,17 +452,27 @@ class PlanAdapter:
         if not next_training:
             return changes
 
-        # 1. Плохой сон — главный фактор восстановления
-        if sleep_quality == 'bad':
+        # Нормализация sleep_quality (поддержка legacy формата)
+        sleep_map = {'bad': 1, 'ok': 3, 'good': 5}
+        if isinstance(sleep_quality, str) and sleep_quality in sleep_map:
+            sleep_score = sleep_map[sleep_quality]
+        else:
+            try:
+                sleep_score = int(sleep_quality)
+            except (ValueError, TypeError):
+                sleep_score = 3
+
+        # 1. Плохой сон (1-2 из 5) — главный фактор восстановления
+        if sleep_score <= 2:
             total_reduction += 0.20
             reasons.append("плохой сон")
-            logger.info("Wellness: плохой сон -> -20%")
+            logger.info(f"Wellness: плохой сон ({sleep_score}/5) -> -20%")
 
-        # 2. Усталость (wellness_rating=1)
-        if wellness_rating == 1:
+        # 2. Плохое самочувствие (1-2 из 5)
+        if wellness_rating <= 2:
             total_reduction += 0.15
             reasons.append("усталость")
-            logger.info("Wellness: усталость -> -15%")
+            logger.info(f"Wellness: усталость ({wellness_rating}/5) -> -15%")
 
         # 3. Боль — серьёзный сигнал
         if pain_reported:

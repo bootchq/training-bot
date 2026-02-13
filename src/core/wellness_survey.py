@@ -89,19 +89,22 @@ class WellnessSurvey:
             survey['step'] = 2
 
             text = "✅ Оценка сохранена\n\n"
-            text += "❓ Как себя чувствуешь?"
+            text += "❓ Как себя чувствуешь? (общее самочувствие)"
 
+            # 5-балльная шкала вместо 3 — точнее отражает состояние
             keyboard = [
                 [
-                    InlineKeyboardButton("😫 Усталость", callback_data="survey_wellness_1"),
-                    InlineKeyboardButton("😐 Норма", callback_data="survey_wellness_2"),
-                    InlineKeyboardButton("😊 Отлично", callback_data="survey_wellness_3")
+                    InlineKeyboardButton("1 😫", callback_data="survey_wellness_1"),
+                    InlineKeyboardButton("2 😕", callback_data="survey_wellness_2"),
+                    InlineKeyboardButton("3 😐", callback_data="survey_wellness_3"),
+                    InlineKeyboardButton("4 🙂", callback_data="survey_wellness_4"),
+                    InlineKeyboardButton("5 😊", callback_data="survey_wellness_5"),
                 ]
             ]
 
             return text, InlineKeyboardMarkup(keyboard)
 
-        # Шаг 2: Самочувствие (1-3)
+        # Шаг 2: Самочувствие (1-5)
         elif step == 2 and callback_data.startswith('survey_wellness_'):
             wellness = int(callback_data.split('_')[2])
             survey['answers']['wellness_rating'] = wellness
@@ -119,33 +122,90 @@ class WellnessSurvey:
 
             return text, InlineKeyboardMarkup(keyboard)
 
-        # Шаг 3: Боль (да/нет)
+        # Шаг 3: Боль (да/нет) → если да, спрашиваем где
         elif step == 3 and callback_data.startswith('survey_pain_'):
             has_pain = callback_data.split('_')[2] == 'yes'
             survey['answers']['pain_reported'] = has_pain
 
             if has_pain:
-                # TODO: можно добавить ввод текста для уточнения места боли
-                survey['answers']['pain_location'] = 'Не указано'
+                # Спрашиваем место боли — важно для трекинга травм
+                survey['step'] = '3b'
+
+                text = "❓ Где именно?"
+
+                keyboard = [
+                    [
+                        InlineKeyboardButton("Стопа", callback_data="survey_painloc_foot"),
+                        InlineKeyboardButton("Голень", callback_data="survey_painloc_shin"),
+                    ],
+                    [
+                        InlineKeyboardButton("Колено", callback_data="survey_painloc_knee"),
+                        InlineKeyboardButton("Бедро", callback_data="survey_painloc_thigh"),
+                    ],
+                    [
+                        InlineKeyboardButton("Задн. поверхность", callback_data="survey_painloc_hamstring"),
+                        InlineKeyboardButton("Поясница", callback_data="survey_painloc_back"),
+                    ],
+                    [
+                        InlineKeyboardButton("Другое", callback_data="survey_painloc_other"),
+                    ]
+                ]
+
+                return text, InlineKeyboardMarkup(keyboard)
 
             survey['step'] = 4
 
-            text = "✅ Информация о боли сохранена\n\n"
+            text = "✅ Информация сохранена\n\n"
             text += "❓ Как спал прошлой ночью?"
 
             keyboard = [
                 [
-                    InlineKeyboardButton("😴 Плохо", callback_data="survey_sleep_bad"),
-                    InlineKeyboardButton("😐 Норма", callback_data="survey_sleep_ok"),
-                    InlineKeyboardButton("😊 Отлично", callback_data="survey_sleep_good")
+                    InlineKeyboardButton("1 😴", callback_data="survey_sleep_1"),
+                    InlineKeyboardButton("2 😕", callback_data="survey_sleep_2"),
+                    InlineKeyboardButton("3 😐", callback_data="survey_sleep_3"),
+                    InlineKeyboardButton("4 🙂", callback_data="survey_sleep_4"),
+                    InlineKeyboardButton("5 😊", callback_data="survey_sleep_5"),
                 ]
             ]
 
             return text, InlineKeyboardMarkup(keyboard)
 
-        # Шаг 4: Сон (плохой/норма/отлично)
+        # Шаг 3b: Место боли
+        elif step == '3b' and callback_data.startswith('survey_painloc_'):
+            pain_locations = {
+                'foot': 'Стопа/голеностоп',
+                'shin': 'Голень',
+                'knee': 'Колено',
+                'thigh': 'Бедро/квадрицепс',
+                'hamstring': 'Задняя поверхность бедра',
+                'back': 'Поясница',
+                'other': 'Другое',
+            }
+            loc_key = callback_data.split('_')[2]
+            survey['answers']['pain_location'] = pain_locations.get(loc_key, loc_key)
+            survey['step'] = 4
+
+            text = f"✅ Боль: {survey['answers']['pain_location']}\n\n"
+            text += "❓ Как спал прошлой ночью?"
+
+            keyboard = [
+                [
+                    InlineKeyboardButton("1 😴", callback_data="survey_sleep_1"),
+                    InlineKeyboardButton("2 😕", callback_data="survey_sleep_2"),
+                    InlineKeyboardButton("3 😐", callback_data="survey_sleep_3"),
+                    InlineKeyboardButton("4 🙂", callback_data="survey_sleep_4"),
+                    InlineKeyboardButton("5 😊", callback_data="survey_sleep_5"),
+                ]
+            ]
+
+            return text, InlineKeyboardMarkup(keyboard)
+
+        # Шаг 4: Сон (1-5 баллов)
         elif step == 4 and callback_data.startswith('survey_sleep_'):
-            sleep_quality = callback_data.split('_')[2]
+            sleep_val = callback_data.split('_')[2]
+            # Поддержка и старого формата (bad/ok/good) и нового (1-5)
+            sleep_mapping = {'bad': '1', 'ok': '3', 'good': '5'}
+            sleep_quality = sleep_mapping.get(sleep_val, sleep_val)
             survey['answers']['sleep_quality'] = sleep_quality
             survey['step'] = 5
 
@@ -172,13 +232,24 @@ class WellnessSurvey:
 
     @staticmethod
     def _save_survey(user_id: int):
-        """Сохранение опроса в БД"""
+        """Сохранение опроса в БД + расчёт sRPE"""
         if user_id not in WellnessSurvey.pending_surveys:
             return
 
         survey = WellnessSurvey.pending_surveys[user_id]
         survey_date = survey['date']
         answers = survey['answers']
+
+        # Расчёт sRPE (Session RPE) = RPE × duration_min
+        # Foster et al. — один из самых валидированных показателей нагрузки
+        srpe = None
+        training = db.get_training_for_date(user_id, survey_date)
+        if training and training.duration_min and answers.get('training_rating'):
+            srpe = answers['training_rating'] * training.duration_min
+            answers['srpe'] = srpe
+            logger.info(
+                f"sRPE = {answers['training_rating']} × {training.duration_min} мин = {srpe} AU"
+            )
 
         db.save_wellness_survey(
             user_id=user_id,

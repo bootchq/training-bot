@@ -40,6 +40,8 @@ from typing import Dict, List, Tuple, Optional
 from dataclasses import dataclass
 from enum import Enum
 
+from .vdot_calculator import get_training_paces_seconds, format_pace
+
 
 class IntervalFocus(str, Enum):
     """Фокус интервальной тренировки"""
@@ -253,6 +255,70 @@ INTERVAL_TEMPLATES: Dict[str, Dict] = {
 ⚠️ Темп должен быть "комфортно тяжёлым" — не спринт, но и не прогулка.
 """,
     },
+
+    # --- Непрерывные темповые тренировки ---
+    'tempo_run': {
+        'name': 'Темповый бег',
+        'name_en': 'Tempo Run',
+        'work_time_range_min': (20, 30),
+        'pace_zone': 'T',
+        'hr_zone': 'Z3-Z4',
+        'focus': IntervalFocus.THRESHOLD,
+        'suitable_periods': [TrainingPeriod.BUILD, TrainingPeriod.PEAK],
+        'description_template': """
+🎯 **Темповый бег {work_time} мин** в T-pace
+
+🏃 Разминка: 15 мин Z2
+🏃 Основная часть: {work_time} мин непрерывно в T-pace ({pace})
+🧘 Заминка: 10 мин Z1
+
+💡 "Комфортно тяжело" — можешь говорить короткими фразами.
+⚠️ Не начинай быстрее целевого темпа! Первые 5 мин — вкатиться.
+""",
+    },
+
+    'progression_run': {
+        'name': 'Прогрессивный бег',
+        'name_en': 'Progression Run',
+        'total_time_range_min': (40, 60),
+        'pace_zone': 'mixed',
+        'hr_zone': 'Z2→Z4',
+        'focus': IntervalFocus.ENDURANCE,
+        'suitable_periods': [TrainingPeriod.BUILD, TrainingPeriod.PEAK],
+        'description_template': """
+🎯 **Прогрессивный бег {total_time} мин**
+
+📈 Разгон по зонам:
+  • Первые 50%: E-pace ({e_pace}) — лёгкий разговорный
+  • Следующие 30%: M-pace ({m_pace}) — марафонский
+  • Последние 20%: T-pace ({t_pace}) — пороговый
+
+💡 Учит финишировать быстро, когда устал. Отличная подготовка к забегам.
+⚠️ Начинай МЕДЛЕННО! Если первая половина слишком быстрая — не сможешь ускориться.
+""",
+    },
+
+    'long_run_mpace': {
+        'name': 'Длинная с M-pace',
+        'name_en': 'Long Run with Marathon Pace',
+        'total_distance_range_km': (18, 28),
+        'mpace_distance_range_km': (5, 10),
+        'pace_zone': 'mixed',
+        'hr_zone': 'Z2→Z3',
+        'focus': IntervalFocus.ENDURANCE,
+        'suitable_periods': [TrainingPeriod.BUILD],
+        'description_template': """
+🎯 **Длинная {total_km} км** с вставкой M-pace
+
+📋 Структура:
+  • Первые км: E-pace ({e_pace}) — легко
+  • Средние {mpace_km} км: M-pace ({m_pace}) — марафонский темп
+  • Финальные км: E-pace — лёгкая заминка
+
+💡 Pfitzinger: лучшая тренировка для марафонской подготовки.
+⚠️ M-pace секция в середине, не в конце! Важно добежать длинную до конца.
+""",
+    },
 }
 
 
@@ -457,6 +523,104 @@ STRENGTH_TEMPLATES: Dict[str, Dict] = {
 # =============================================================================
 # ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 # =============================================================================
+
+def calculate_work_time(template_key: str, vdot: Optional[float] = None) -> Optional[int]:
+    """
+    Рассчитать время работы для интервала по VDOT пользователя.
+
+    Вместо захардкоженных work_time_range_sec рассчитывает точное время
+    из темпа (R/I/T-pace) и дистанции интервала.
+
+    Args:
+        template_key: Ключ шаблона из INTERVAL_TEMPLATES
+        vdot: VDOT пользователя (если None — используется дефолт)
+
+    Returns:
+        Время работы в секундах или None если шаблон не найден
+    """
+    template = INTERVAL_TEMPLATES.get(template_key)
+    if not template:
+        return None
+
+    distance_m = template.get('work_distance_m')
+    if not distance_m:
+        return None  # Для шаблонов на время (vo2max_5min, fartlek и пр.)
+
+    pace_zone = template.get('pace_zone', 'I')
+
+    if vdot:
+        paces = get_training_paces_seconds(vdot)
+        # Маппинг zone → pace key
+        zone_map = {'R': 'repetition', 'I': 'interval', 'T': 'threshold',
+                    'M': 'marathon', 'E': 'easy'}
+        pace_key = zone_map.get(pace_zone, 'interval')
+        pace_sec_per_km = paces.get(pace_key, 300)
+    else:
+        # Дефолтные темпы (для VDOT ~40)
+        defaults = {'R': 246, 'I': 270, 'T': 306, 'M': 330, 'E': 372}
+        pace_sec_per_km = defaults.get(pace_zone, 300)
+
+    # Время = дистанция (м) * темп (сек/км) / 1000
+    work_time = int(round(distance_m * pace_sec_per_km / 1000))
+    return work_time
+
+
+def get_personalized_paces(vdot: float) -> Dict[str, str]:
+    """
+    Получить персонализированные темпы для описания тренировок.
+
+    Returns:
+        {"E": "6:12/км", "M": "5:30/км", "T": "5:06/км", ...}
+    """
+    paces = get_training_paces_seconds(vdot)
+    return {
+        'E': f"{format_pace(paces['easy'])}/км",
+        'M': f"{format_pace(paces['marathon'])}/км",
+        'T': f"{format_pace(paces['threshold'])}/км",
+        'I': f"{format_pace(paces['interval'])}/км",
+        'R': f"{format_pace(paces['repetition'])}/км",
+    }
+
+
+def format_tempo_description(template_key: str, vdot: Optional[float] = None,
+                              work_time_min: int = 25,
+                              total_km: float = 20,
+                              mpace_km: float = 6) -> str:
+    """
+    Форматировать описание темповой/прогрессивной тренировки с VDOT-темпами.
+
+    Args:
+        template_key: 'tempo_run', 'progression_run', или 'long_run_mpace'
+        vdot: VDOT пользователя
+        work_time_min: Длительность основной части (мин)
+        total_km: Общая дистанция (для long_run_mpace)
+        mpace_km: Км в M-pace (для long_run_mpace)
+    """
+    template = INTERVAL_TEMPLATES.get(template_key)
+    if not template:
+        return f"Тренировка: {template_key}"
+
+    if vdot:
+        p = get_personalized_paces(vdot)
+    else:
+        p = {'E': '~6:00-7:00/км', 'M': '~5:20-5:40/км',
+             'T': '~5:00-5:10/км', 'I': '~4:20-4:40/км', 'R': '~3:50-4:10/км'}
+
+    if template_key == 'tempo_run':
+        return template['description_template'].format(
+            work_time=work_time_min, pace=p['T']
+        )
+    elif template_key == 'progression_run':
+        return template['description_template'].format(
+            total_time=work_time_min, e_pace=p['E'], m_pace=p['M'], t_pace=p['T']
+        )
+    elif template_key == 'long_run_mpace':
+        return template['description_template'].format(
+            total_km=int(total_km), mpace_km=int(mpace_km),
+            e_pace=p['E'], m_pace=p['M']
+        )
+    return ""
+
 
 def get_suitable_intervals(period: TrainingPeriod,
                            recent_used: Optional[List[str]] = None) -> List[str]:

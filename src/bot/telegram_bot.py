@@ -22,6 +22,9 @@ from ..core.vdot_calculator import calculate_best_vdot
 from ..core.vdot_calculator import format_vdot_summary
 from ..core.wellness_survey import WellnessSurvey
 from ..database.db import db
+from ..ai.workout_recommender import workout_recommender
+from ..ai.recovery_detector import recovery_detector
+from ..ai.weekly_coach import weekly_coach
 from ..integrations.calendar_sync import calendar_sync
 from ..integrations.garmin_sync import garmin_sync
 from ..utils import time_utils
@@ -81,6 +84,9 @@ class TrainingBot:
         self.app.add_handler(CommandHandler("zones", self.zones_command))
         self.app.add_handler(CommandHandler("methodology", self.methodology_command))
         self.app.add_handler(CommandHandler("admin", self.admin_command))
+        self.app.add_handler(CommandHandler("ai_suggest", self.ai_suggest_command))
+        self.app.add_handler(CommandHandler("weekly", self.weekly_command))
+        self.app.add_handler(CommandHandler("recovery", self.recovery_command))
 
         # ВАЖНО: Standalone CallbackQueryHandlers ДО ConversationHandlers
         # чтобы они не были заблокированы
@@ -404,6 +410,98 @@ class TrainingBot:
                         records_text += f"{record['name']}: {record['value']} {record['unit']}\n"
                     records_text += "\nПоздравляю! Продолжай в том же духе!"
                     await update.message.reply_text(records_text)
+
+    async def ai_suggest_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /ai_suggest - AI рекомендация тренировки"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        await update.message.reply_text("🤖 Анализирую данные...")
+
+        try:
+            rec = workout_recommender.get_recommendation(user.id)
+
+            text = f"🏃 **AI рекомендация тренировки**\n\n"
+            text += f"**Тип:** {rec['workout_type']}\n"
+            text += f"**Длительность:** {rec['duration_min']} мин\n"
+            text += f"**Дистанция:** {rec['distance_km']} км\n"
+            text += f"**Зона пульса:** {rec['target_zone']}\n\n"
+            text += f"📝 {rec['description']}\n\n"
+            text += f"💡 _{rec['reasoning']}_"
+
+            await update.message.reply_text(text, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Ошибка /ai_suggest: {e}")
+            await update.message.reply_text("Не удалось получить рекомендацию. Попробуй позже.")
+
+    async def weekly_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /weekly - еженедельный AI анализ"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        await update.message.reply_text("📊 Анализирую неделю...")
+
+        try:
+            insights = weekly_coach.get_weekly_insights(user.id)
+
+            text = f"📊 **Еженедельный анализ**\n\n"
+            text += f"📝 {insights['summary']}\n\n"
+
+            pva = insights['plan_vs_actual']
+            text += f"**План vs Факт:**\n"
+            text += f"  Тренировок: {pva['actual_workouts']}/{pva['planned_workouts']} ({pva['completion_rate']:.0f}%)\n"
+            text += f"  Дистанция: {pva['actual_distance']:.1f}/{pva['planned_distance']:.1f} км\n\n"
+
+            if insights['insights']:
+                text += "**Инсайты:**\n"
+                for insight in insights['insights']:
+                    text += f"  • {insight}\n"
+                text += "\n"
+
+            if insights['recommendations']:
+                text += "**Рекомендации:**\n"
+                for rec in insights['recommendations']:
+                    text += f"  • {rec}\n"
+
+            await update.message.reply_text(text, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Ошибка /weekly: {e}")
+            await update.message.reply_text("Не удалось получить анализ. Попробуй позже.")
+
+    async def recovery_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /recovery - статус восстановления"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        try:
+            recovery = recovery_detector.detect_recovery_status(user.id)
+            status_emoji = {'rest': '🔴', 'easy': '🟡', 'normal': '🟢', 'hard': '💪'}
+
+            text = f"🔋 **Статус восстановления**\n\n"
+            text += f"{status_emoji.get(recovery['status'], '🟢')} **{recovery['status_text']}**\n"
+            text += f"Уверенность: {recovery['confidence']*100:.0f}%\n\n"
+            text += f"📝 {recovery['reasoning']}\n"
+
+            metrics = recovery.get('metrics', {})
+            if metrics:
+                text += "\n**Метрики:**\n"
+                if metrics.get('wellness_avg'):
+                    text += f"  Самочувствие: {metrics['wellness_avg']}/5\n"
+                if metrics.get('sleep_avg'):
+                    text += f"  Сон: {metrics['sleep_avg']}/5\n"
+                if metrics.get('pain_days'):
+                    text += f"  Дней с болью: {metrics['pain_days']}\n"
+                if metrics.get('rhr_trend'):
+                    trend_text = {'up': '↑ повышен', 'down': '↓ снижен', 'stable': '→ стабилен'}
+                    text += f"  RHR: {trend_text.get(metrics['rhr_trend'], metrics['rhr_trend'])}\n"
+                if metrics.get('hrv_trend'):
+                    trend_text = {'up': '↑ повышен', 'down': '↓ снижен', 'stable': '→ стабилен'}
+                    text += f"  HRV: {trend_text.get(metrics['hrv_trend'], metrics['hrv_trend'])}\n"
+
+            await update.message.reply_text(text, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Ошибка /recovery: {e}")
+            await update.message.reply_text("Не удалось определить статус восстановления.")
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - выбор периода статистики"""
@@ -749,19 +847,32 @@ class TrainingBot:
                 # Опрос завершён - финальное сообщение
                 await query.edit_message_text(text)
 
-                # Отправляем AI совет после завершения опроса
+                # AI: recovery detection + совет после wellness опроса
                 try:
+                    recovery = recovery_detector.detect_recovery_status(user.id)
+                    status = recovery['status']
+                    status_emoji = {'rest': '🔴', 'easy': '🟡', 'normal': '🟢', 'hard': '💪'}
+
+                    recovery_msg = f"{status_emoji.get(status, '🟢')} **{recovery['status_text']}**"
+                    recovery_msg += f"\n{recovery['reasoning']}"
+
+                    await self.app.bot.send_message(
+                        chat_id=telegram_id,
+                        text=f"🔋 Статус восстановления:\n\n{recovery_msg}",
+                        parse_mode='Markdown'
+                    )
+                    logger.info(f"Recovery status отправлен: {status} для user {telegram_id}")
+
+                    # AI совет от тренера
                     yesterday = time_utils.today() - timedelta(days=1)
                     ai_advice = WellnessSurvey.get_ai_advice_for_survey(user.id, yesterday)
-
                     if ai_advice:
                         await self.app.bot.send_message(
                             chat_id=telegram_id,
                             text=f"🤖 Совет от AI-тренера:\n\n{ai_advice}"
                         )
-                        logger.info(f"AI совет отправлен пользователю {telegram_id}")
                 except Exception as e:
-                    logger.error(f"Ошибка отправки AI совета: {e}")
+                    logger.error(f"Ошибка AI после wellness опроса: {e}")
 
         else:
             # Некорректный callback или опрос не найден
@@ -1387,7 +1498,7 @@ class TrainingBot:
 
     def _get_daily_recommendation(self, user_id: int) -> str:
         """
-        Получить рекомендацию на сегодня
+        Получить рекомендацию на сегодня с учётом AI recovery status
 
         Returns:
             Текст рекомендации или пустая строка
@@ -1400,9 +1511,6 @@ class TrainingBot:
         today_plan = db.get_plan_for_date(user_id, today)
         if not today_plan:
             return ""
-
-        # Получаем последний wellness опрос
-        wellness = db.get_latest_wellness(user_id)
 
         # Тип тренировки на русском
         type_names = {
@@ -1421,24 +1529,34 @@ class TrainingBot:
         if today_plan.duration_min:
             recommendation += f" • {today_plan.duration_min} мин"
 
-        # Если есть недавний wellness с проблемами — предупреждаем
-        if wellness and wellness.date >= today - timedelta(days=2):
-            warnings = []
+        # AI Recovery Detection
+        try:
+            recovery = recovery_detector.detect_recovery_status(user_id)
+            status = recovery['status']
 
-            if wellness.sleep_quality == 'bad':
-                warnings.append("плохой сон")
-            if wellness.wellness_rating == 1:
-                warnings.append("усталость")
-            if wellness.pain_reported:
-                warnings.append("боль")
-
-            if warnings:
-                recommendation += f"\n⚠️ Учтено: {', '.join(warnings)}"
-                recommendation += " — нагрузка снижена"
-
-        # Если интенсивная тренировка — напоминаем
-        if today_plan.type in ['intervals', 'tempo']:
-            recommendation += "\n💪 Готов к интенсиву?"
+            if status == 'rest':
+                recommendation += "\n🔴 Восстановление: рекомендован отдых"
+                recommendation += f"\n   {recovery['reasoning']}"
+            elif status == 'easy':
+                recommendation += "\n🟡 Восстановление: только лёгкая тренировка"
+                if today_plan.type in ['intervals', 'tempo', 'long']:
+                    recommendation += "\n   ⚠️ Снизь интенсивность!"
+            elif status == 'hard':
+                recommendation += "\n🟢 Восстановление: отличное, можно интенсив"
+        except Exception as e:
+            logger.debug(f"Recovery detection недоступен: {e}")
+            # Fallback на старую логику
+            wellness = db.get_latest_wellness(user_id)
+            if wellness and wellness.date >= today - timedelta(days=2):
+                warnings = []
+                if wellness.sleep_quality in ('bad', '1', '2'):
+                    warnings.append("плохой сон")
+                if wellness.wellness_rating and wellness.wellness_rating <= 2:
+                    warnings.append("усталость")
+                if wellness.pain_reported:
+                    warnings.append("боль")
+                if warnings:
+                    recommendation += f"\n⚠️ Учтено: {', '.join(warnings)}"
 
         return recommendation
 

@@ -1,35 +1,22 @@
 """
 Калькулятор VDOT по методологии Jack Daniels
 
-=== ЧТО ТАКОЕ VDOT ===
-VDOT — "эффективный VO2max", учитывающий экономичность бега.
-Позволяет рассчитать оптимальные тренировочные темпы по результату забега.
+=== ФОРМУЛЫ DANIELS ===
+VO2 = -4.60 + 0.182258*v + 0.000104*v²  (v = скорость м/мин)
+F(t) = 0.8 + 0.1894393*e^(-0.012778*t) + 0.2989558*e^(-0.1932605*t)
+VDOT = VO2 / F(t)
 
 Источник: Jack Daniels "Daniels' Running Formula" (4th ed, 2021)
-Официальный калькулятор: https://vdoto2.com/calculator
+Формулы позволяют рассчитать VDOT для ЛЮБОЙ дистанции, не только стандартных.
 
 === 5 ЗОН ТЕМПОВ ===
-- E (Easy): 65-79% HRmax — восстановление, длительные, аэробная база
+- E (Easy): 65-79% VO2max — восстановление, длительные, аэробная база
 - M (Marathon): целевой темп марафона — специфичность
 - T (Threshold): "комфортно тяжело" — развитие порога, ~60 мин удержания
 - I (Interval): 97-100% VO2max — 3-5 мин интервалы, развитие VO2max
 - R (Repetition): быстрее 5k — нейромышечная работа, экономичность
-
-=== ТАБЛИЦА VDOT ===
-- Диапазон: 30-70 (любители: 30-50, продвинутые: 45-60, элита: 60-70+)
-- Интерполяция для точных значений между табличными
-
-=== ПЕРЕСЧЁТ VDOT ===
-- Обновлять каждые 4-8 недель
-- После PR или хорошего забега
-- VDOT растёт с ростом формы
-
-=== ПРИМЕРЫ ===
-- VDOT 40: 10k за 48:30, марафон за 3:49
-- VDOT 45: 10k за 43:15, марафон за 3:23
-- VDOT 50: 10k за 38:45, марафон за 3:01
-- VDOT 55: 10k за 35:00, марафон за 2:44
 """
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import and_
@@ -37,53 +24,21 @@ from sqlalchemy import and_
 from ..database.db import db, Training
 from ..utils.logger import logger
 
-# Таблица VDOT: время в секундах для каждой дистанции
-# Формат: VDOT -> {distance: time_seconds}
-VDOT_TABLE = {
-    30: {'5k': 1860, '10k': 3900, 'half': 8700, 'marathon': 18300},
-    31: {'5k': 1800, '10k': 3780, 'half': 8430, 'marathon': 17760},
-    32: {'5k': 1746, '10k': 3660, 'half': 8166, 'marathon': 17220},
-    33: {'5k': 1692, '10k': 3546, 'half': 7920, 'marathon': 16716},
-    34: {'5k': 1644, '10k': 3438, 'half': 7686, 'marathon': 16224},
-    35: {'5k': 1596, '10k': 3336, 'half': 7464, 'marathon': 15756},
-    36: {'5k': 1554, '10k': 3240, 'half': 7254, 'marathon': 15312},
-    37: {'5k': 1512, '10k': 3150, 'half': 7056, 'marathon': 14886},
-    38: {'5k': 1470, '10k': 3066, 'half': 6864, 'marathon': 14478},
-    39: {'5k': 1434, '10k': 2982, 'half': 6684, 'marathon': 14094},
-    40: {'5k': 1398, '10k': 2904, 'half': 6516, 'marathon': 13728},
-    41: {'5k': 1362, '10k': 2832, 'half': 6354, 'marathon': 13380},
-    42: {'5k': 1332, '10k': 2760, 'half': 6198, 'marathon': 13050},
-    43: {'5k': 1302, '10k': 2694, 'half': 6054, 'marathon': 12738},
-    44: {'5k': 1272, '10k': 2628, 'half': 5916, 'marathon': 12438},
-    45: {'5k': 1242, '10k': 2568, 'half': 5784, 'marathon': 12156},
-    46: {'5k': 1218, '10k': 2508, 'half': 5658, 'marathon': 11886},
-    47: {'5k': 1194, '10k': 2454, 'half': 5538, 'marathon': 11634},
-    48: {'5k': 1170, '10k': 2400, 'half': 5424, 'marathon': 11394},
-    49: {'5k': 1146, '10k': 2352, 'half': 5316, 'marathon': 11166},
-    50: {'5k': 1128, '10k': 2304, 'half': 5214, 'marathon': 10950},
-    51: {'5k': 1104, '10k': 2256, 'half': 5112, 'marathon': 10746},
-    52: {'5k': 1086, '10k': 2214, 'half': 5016, 'marathon': 10554},
-    53: {'5k': 1068, '10k': 2172, 'half': 4926, 'marathon': 10368},
-    54: {'5k': 1050, '10k': 2130, 'half': 4836, 'marathon': 10194},
-    55: {'5k': 1032, '10k': 2094, 'half': 4752, 'marathon': 10026},
-    56: {'5k': 1020, '10k': 2058, 'half': 4674, 'marathon': 9870},
-    57: {'5k': 1002, '10k': 2022, 'half': 4596, 'marathon': 9720},
-    58: {'5k': 990, '10k': 1992, 'half': 4524, 'marathon': 9576},
-    59: {'5k': 972, '10k': 1956, 'half': 4452, 'marathon': 9438},
-    60: {'5k': 960, '10k': 1926, 'half': 4386, 'marathon': 9306},
-    61: {'5k': 948, '10k': 1896, 'half': 4320, 'marathon': 9180},
-    62: {'5k': 936, '10k': 1866, 'half': 4254, 'marathon': 9060},
-    63: {'5k': 924, '10k': 1842, 'half': 4194, 'marathon': 8946},
-    64: {'5k': 912, '10k': 1812, 'half': 4134, 'marathon': 8832},
-    65: {'5k': 900, '10k': 1788, 'half': 4080, 'marathon': 8724},
-    66: {'5k': 894, '10k': 1764, 'half': 4026, 'marathon': 8622},
-    67: {'5k': 882, '10k': 1740, 'half': 3972, 'marathon': 8520},
-    68: {'5k': 870, '10k': 1716, 'half': 3924, 'marathon': 8424},
-    69: {'5k': 864, '10k': 1698, 'half': 3876, 'marathon': 8328},
-    70: {'5k': 852, '10k': 1674, 'half': 3828, 'marathon': 8238},
+# Дистанции в метрах — поддерживаются формулами Daniels
+DISTANCES = {
+    '800': 800,
+    '1500': 1500,
+    'mile': 1609.34,
+    '3k': 3000,
+    '5k': 5000,
+    '8k': 8000,
+    '10k': 10000,
+    '15k': 15000,
+    'half': 21097.5,
+    'marathon': 42195,
 }
 
-# Тренировочные темпы по VDOT (сек/км)
+# Тренировочные темпы по VDOT (сек/км) — из таблиц Daniels (4th ed)
 # E = Easy, M = Marathon, T = Threshold, I = Interval, R = Repetition
 TRAINING_PACES = {
     30: {'E': 444, 'M': 396, 'T': 366, 'I': 330, 'R': 306},
@@ -110,52 +65,83 @@ TRAINING_PACES = {
 }
 
 
-def calculate_vdot_from_time(distance: str, time_seconds: int) -> Optional[float]:
+# === Формулы Jack Daniels (Daniels' Running Formula, 4th ed) ===
+
+def _vo2_demand(velocity: float) -> float:
+    """VO2 (мл/кг/мин) при скорости v (м/мин)"""
+    return -4.60 + 0.182258 * velocity + 0.000104 * velocity ** 2
+
+
+def _vo2max_fraction(time_minutes: float) -> float:
+    """Доля VO2max, удерживаемая t минут при максимальном усилии"""
+    t = time_minutes
+    return (0.8 + 0.1894393 * math.exp(-0.012778 * t)
+            + 0.2989558 * math.exp(-0.1932605 * t))
+
+
+def _velocity_from_vo2(vo2: float) -> float:
+    """Скорость (м/мин) по VO2 — обратная квадратичная формула"""
+    a = 0.000104
+    b = 0.182258
+    c = -4.60 - vo2
+    disc = b ** 2 - 4 * a * c
+    if disc < 0:
+        return 0.0
+    return (-b + math.sqrt(disc)) / (2 * a)
+
+
+def _predict_time_seconds(vdot: float, distance_meters: float) -> int:
+    """Прогноз времени (сек) для дистанции по VDOT — метод бисекции"""
+    lo, hi = 2.0, 600.0  # от 2 мин до 10 часов
+    for _ in range(100):
+        mid = (lo + hi) / 2
+        v = distance_meters / mid
+        vo2 = _vo2_demand(v)
+        f = _vo2max_fraction(mid)
+        computed = vo2 / f
+        if computed > vdot:
+            lo = mid  # слишком быстро → увеличить время
+        else:
+            hi = mid
+        if hi - lo < 0.005:
+            break
+    return int(round((lo + hi) / 2 * 60))
+
+
+def calculate_vdot_from_time(distance: str, time_seconds: int,
+                             is_race: bool = False) -> Optional[float]:
     """
-    Рассчитать VDOT по результату на дистанции
+    Рассчитать VDOT по результату на дистанции (формулы Daniels)
+
+    Поддерживает любую дистанцию из DISTANCES (800м — марафон).
+    Тренировочные результаты корректируются на 3% (race equivalent).
 
     Args:
-        distance: Дистанция ("5k", "10k", "half", "marathon")
+        distance: Дистанция ("5k", "10k", "half", "marathon", "3k", "1500" и др.)
         time_seconds: Время в секундах
+        is_race: True если результат с забега (макс. усилие)
 
     Returns:
-        VDOT или None если не удалось рассчитать
+        VDOT или None если неизвестная дистанция
     """
-    if distance not in ['5k', '10k', 'half', 'marathon']:
+    # Коррекция: тренировочный бег → на 3% медленнее забега
+    if not is_race:
+        time_seconds = int(time_seconds * 0.97)
+
+    dist_meters = DISTANCES.get(distance)
+    if dist_meters is None:
         logger.warning(f"Неизвестная дистанция: {distance}")
         return None
 
-    # Находим ближайший VDOT по таблице
-    best_vdot = None
-    best_diff = float('inf')
+    time_minutes = time_seconds / 60.0
+    velocity = dist_meters / time_minutes  # м/мин
 
-    for vdot, times in VDOT_TABLE.items():
-        if distance in times:
-            diff = abs(times[distance] - time_seconds)
-            if diff < best_diff:
-                best_diff = diff
-                best_vdot = vdot
+    vo2 = _vo2_demand(velocity)
+    fraction = _vo2max_fraction(time_minutes)
+    vdot = vo2 / fraction
 
-    if best_vdot is None:
-        return None
-
-    # Интерполяция для более точного значения
-    # Если время между двумя VDOT, интерполируем
-    vdot_list = sorted(VDOT_TABLE.keys())
-    for i, v in enumerate(vdot_list[:-1]):
-        v_next = vdot_list[i + 1]
-        t1 = VDOT_TABLE[v][distance]
-        t2 = VDOT_TABLE[v_next][distance]
-
-        if t2 <= time_seconds <= t1:
-            # Линейная интерполяция
-            ratio = (t1 - time_seconds) / (t1 - t2)
-            interpolated = v + ratio * (v_next - v)
-            logger.info(f"VDOT рассчитан: {interpolated:.1f} (по {distance} за {format_time(time_seconds)})")
-            return round(interpolated, 1)
-
-    logger.info(f"VDOT рассчитан: {best_vdot} (по {distance} за {format_time(time_seconds)})")
-    return float(best_vdot)
+    logger.info(f"VDOT = {vdot:.1f} (по {distance} за {format_time(time_seconds)})")
+    return round(vdot, 1)
 
 
 def calculate_best_vdot(personal_records: Dict[str, Dict]) -> Tuple[Optional[float], Optional[str], Optional[int]]:
@@ -299,7 +285,9 @@ def format_time(seconds: int) -> str:
 
 def get_predicted_times(vdot: float) -> Dict[str, str]:
     """
-    Получить прогнозируемые времена на дистанциях по VDOT
+    Прогнозируемые времена на дистанциях по VDOT (формулы Daniels)
+
+    Работает для любого VDOT (не ограничен диапазоном 30-70).
 
     Args:
         vdot: Значение VDOT
@@ -307,18 +295,19 @@ def get_predicted_times(vdot: float) -> Dict[str, str]:
     Returns:
         Словарь прогнозов: {"5k": "22:30", "10k": "46:45", ...}
     """
-    vdot_int = int(round(vdot))
-    if vdot_int not in VDOT_TABLE:
-        # Ищем ближайший
-        vdot_int = min(VDOT_TABLE.keys(), key=lambda x: abs(x - vdot))
-
-    times = VDOT_TABLE[vdot_int]
-    return {
-        '5k': format_time(times['5k']),
-        '10k': format_time(times['10k']),
-        'half': format_time(times['half']),
-        'marathon': format_time(times['marathon']),
+    predict_distances = {
+        '1500': 1500,
+        '3k': 3000,
+        '5k': 5000,
+        '10k': 10000,
+        'half': 21097.5,
+        'marathon': 42195,
     }
+    result = {}
+    for name, meters in predict_distances.items():
+        t = _predict_time_seconds(vdot, meters)
+        result[name] = format_time(t)
+    return result
 
 
 def find_best_times_from_trainings(user_id: int) -> Dict[str, Dict[str, Any]]:
@@ -344,6 +333,7 @@ def find_best_times_from_trainings(user_id: int) -> Dict[str, Dict[str, Any]]:
 
     # Диапазоны дистанций для поиска (расширенные для гибкости)
     distance_ranges = {
+        '3k': (2.5, 3.5),
         '5k': (4.5, 5.5),
         '10k': (8.0, 11.0),
         'half': (18.0, 23.0),
@@ -376,13 +366,9 @@ def find_best_times_from_trainings(user_id: int) -> Dict[str, Dict[str, Any]]:
                 # Время в секундах
                 time_sec = t.duration_min * 60
 
-                # Нормализуем к точной дистанции (5.0, 10.0 или 21.1 км)
-                if dist_key == '5k':
-                    target_km = 5.0
-                elif dist_key == '10k':
-                    target_km = 10.0
-                else:  # half
-                    target_km = 21.1
+                # Нормализуем к точной дистанции
+                target_map = {'3k': 3.0, '5k': 5.0, '10k': 10.0, 'half': 21.1}
+                target_km = target_map[dist_key]
 
                 normalized_time = (time_sec / t.distance_km) * target_km
 
@@ -418,6 +404,8 @@ def format_vdot_summary(vdot: float, source: str, time_seconds: int) -> str:
         Текст для отображения пользователю
     """
     distance_names = {
+        '1500': '1500 м',
+        '3k': '3 км',
         '5k': '5 км',
         '10k': '10 км',
         'half': 'полумарафон',
@@ -425,10 +413,16 @@ def format_vdot_summary(vdot: float, source: str, time_seconds: int) -> str:
     }
 
     paces = get_training_paces(vdot)
+    predictions = get_predicted_times(vdot)
 
     summary = (
         f"**Твой VDOT: {vdot:.0f}**\n"
         f"(рассчитан по результату {distance_names.get(source, source)} за {format_time(time_seconds)})\n\n"
+        f"**Прогнозы на дистанциях:**\n"
+        f"- 5 км: {predictions['5k']}\n"
+        f"- 10 км: {predictions['10k']}\n"
+        f"- Полумарафон: {predictions['half']}\n"
+        f"- Марафон: {predictions['marathon']}\n\n"
         f"**Тренировочные темпы (Jack Daniels):**\n"
         f"- Easy (лёгкий): {paces['easy_range']}/км\n"
         f"- Marathon (марафонский): {paces['marathon']}/км\n"

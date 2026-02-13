@@ -120,6 +120,9 @@ class WellnessSurvey(Base):
     pain_location = Column(String)
     sleep_quality = Column(String)
 
+    # Session RPE: training_rating × duration_min (Foster et al.)
+    srpe = Column(Integer)  # sRPE в arbitrary units (AU)
+
     # Recovery Index
     rhr = Column(Integer)  # Resting Heart Rate (утренний пульс покоя)
     hrv = Column(Integer)  # Heart Rate Variability (вариабельность пульса)

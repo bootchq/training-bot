@@ -99,30 +99,28 @@ def detect_fitness_level(user_id: int) -> Tuple[Optional[str], dict]:
         if paces:
             best_long_run_pace = min(paces)
 
-    # VDOT из обычных тренировок
+    # VDOT из обычных тренировок с time decay
     best_times = find_best_times_from_trainings(user_id)
     vdot = None
     vdot_source = None
 
-    # Выбираем лучший VDOT (приоритет: 10k > half > 5k)
-    if '10k' in best_times:
-        vdot_10k = calculate_vdot_from_time('10k', best_times['10k']['time_seconds'])
-        if vdot_10k:
-            vdot = vdot_10k
-            vdot_source = '10k'
+    # Выбираем лучший VDOT с учётом свежести (приоритет: 10k > half > 5k > 3k)
+    for dist_key in ['10k', 'half', '5k', '3k']:
+        if dist_key not in best_times:
+            continue
+        bt = best_times[dist_key]
+        raw_vdot = calculate_vdot_from_time(dist_key, bt['time_seconds'])
+        if not raw_vdot:
+            continue
 
-    if 'half' in best_times:
-        vdot_half = calculate_vdot_from_time('half', best_times['half']['time_seconds'])
-        if vdot_half and (vdot is None or vdot_half > vdot):
-            vdot = vdot_half
-            vdot_source = 'half'
+        # Time decay: свежие результаты важнее
+        days_ago = (today - bt['date']).days if bt.get('date') else 0
+        decay = _time_decay(days_ago)
+        adjusted_vdot = raw_vdot * decay
 
-    # Fallback на 5k если 10k и half не найдены
-    if vdot is None and '5k' in best_times:
-        vdot_5k = calculate_vdot_from_time('5k', best_times['5k']['time_seconds'])
-        if vdot_5k:
-            vdot = vdot_5k
-            vdot_source = '5k'
+        if vdot is None or adjusted_vdot > vdot:
+            vdot = adjusted_vdot
+            vdot_source = dist_key
 
     # Период данных (не стаж — это разные вещи)
     data_period_days = (last_date - first_date).days
@@ -179,47 +177,95 @@ def _calculate_level(
     long_run_pace_sec: Optional[float]
 ) -> str:
     """
-    Определяет уровень на основе метрик.
+    Определяет уровень через скоринговую систему (вместо каскада if/else).
 
-    Логика (приоритет сверху вниз):
-    1. VDOT >= 50 → advanced
-    2. max_distance >= 30 км → advanced
-    3. VDOT >= 40 → intermediate
-    4. max_distance >= 20 км → intermediate
-    5. Длинная 15+ км с темпом < 7:00/км → intermediate
-    6. weekly_km >= 40 и weekly_trainings >= 4 → intermediate
-    7. Иначе → beginner
+    Каждая метрика даёт 0-100 очков, взвешенных по важности:
+    - VDOT: 40% (главный показатель физ. формы)
+    - Недельный объём: 20%
+    - Макс. дистанция: 15%
+    - Темп на длинных: 15%
+    - Регулярность: 10%
+
+    Итоговый балл → уровень:
+    - 0-25: beginner
+    - 26-55: intermediate
+    - 56+: advanced
+    """
+    score = 0.0
+
+    # 1. VDOT (0-40 баллов) — главный индикатор
+    if vdot:
+        score += _score_metric(vdot, thresholds=[
+            (30, 0), (35, 10), (40, 20), (45, 30), (50, 40)
+        ])
+
+    # 2. Недельный объём (0-20 баллов)
+    score += _score_metric(weekly_km, thresholds=[
+        (10, 0), (20, 5), (40, 12), (60, 18), (80, 20)
+    ])
+
+    # 3. Макс. дистанция (0-15 баллов)
+    score += _score_metric(max_distance_km, thresholds=[
+        (10, 0), (15, 5), (21, 9), (30, 13), (42, 15)
+    ])
+
+    # 4. Темп на длинных (0-15 баллов) — инвертированный (быстрее = лучше)
+    if long_run_pace_sec:
+        # Конвертируем: 450 сек/км = 0 баллов, 300 сек/км = 15 баллов
+        score += _score_metric(450 - long_run_pace_sec, thresholds=[
+            (0, 0), (30, 4), (90, 9), (120, 13), (150, 15)
+        ])
+
+    # 5. Регулярность (0-10 баллов)
+    score += _score_metric(weekly_trainings, thresholds=[
+        (2, 0), (3, 3), (4, 6), (5, 9), (6, 10)
+    ])
+
+    # Итоговый уровень
+    if score >= 56:
+        return "advanced"
+    elif score >= 26:
+        return "intermediate"
+    return "beginner"
+
+
+def _score_metric(value: float, thresholds: List[Tuple[float, float]]) -> float:
+    """
+    Линейная интерполяция баллов по порогам.
 
     Args:
-        max_distance_km: Максимальная дистанция за всю историю
-        weekly_km: Средний недельный объём (км)
-        weekly_trainings: Среднее количество тренировок в неделю
-        vdot: Расчётный VDOT (или None)
-        long_run_pace_sec: Лучший темп на длинной 15+ км (сек/км) или None
+        value: Значение метрики
+        thresholds: [(порог, баллы), ...] — отсортировано по возрастанию
+
+    Returns:
+        Баллы (с плавной интерполяцией между порогами)
     """
-    # Advanced сигналы
-    if vdot and vdot >= 50:
-        return "advanced"
+    if value <= thresholds[0][0]:
+        return thresholds[0][1]
 
-    if max_distance_km >= 30:
-        return "advanced"
+    for i in range(len(thresholds) - 1):
+        t1, s1 = thresholds[i]
+        t2, s2 = thresholds[i + 1]
+        if t1 <= value <= t2:
+            ratio = (value - t1) / (t2 - t1)
+            return s1 + ratio * (s2 - s1)
 
-    # Intermediate сигналы
-    if vdot and vdot >= 40:
-        return "intermediate"
+    return thresholds[-1][1]
 
-    if max_distance_km >= 20:
-        return "intermediate"
 
-    # Темп < 7:00/км (420 сек) на длинной = не новичок
-    if long_run_pace_sec and long_run_pace_sec < 420:
-        return "intermediate"
+def _time_decay(days_ago: int) -> float:
+    """
+    Коэффициент свежести результата.
 
-    # Хороший объём и частота
-    if weekly_km >= 40 and weekly_trainings >= 4:
-        return "intermediate"
-
-    return "beginner"
+    - 0-28 дней (4 недели): 1.0 (полный вес)
+    - 29-84 дня (5-12 недель): 0.95 (небольшое снижение)
+    - 85+ дней (12+ недель): 0.85 (результат устарел)
+    """
+    if days_ago <= 28:
+        return 1.0
+    elif days_ago <= 84:
+        return 0.95
+    return 0.85
 
 
 def _format_pace(seconds_per_km: int) -> str:
