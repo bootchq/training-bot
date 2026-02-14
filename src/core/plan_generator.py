@@ -313,9 +313,6 @@ class PlanGenerator:
                 days_ahead += 7
             return from_date + timedelta(days=days_ahead)
 
-        # Определяем уровень подготовки
-        current_level = self._get_fitness_level(fitness_level)
-
         # Валидация дней отдыха (минимум 2 дня, не более 3 подряд)
         training_days = self._validate_rest_days(training_days)
 
@@ -351,13 +348,11 @@ class PlanGenerator:
                     workout_type = 'easy'
 
                 # === ПРАВИЛА ДЛИТЕЛЬНОСТИ ===
-                # Беговые тренировки: минимум 60 мин, обычно 60-90 мин
-                # Длинный бег: 120-180 мин в зависимости от уровня и недели
-                # Восстановительный: 30-45 мин
+                # Обычные тренировки: минимум 80 мин (включая разминку/заминку)
+                # Длинный бег: 90-150 мин (разгрузка — 90, развитие — 150)
+                # Восстановительный: 60 мин (единственное исключение для снижения)
 
                 if workout_type == 'long':
-                    # Длинный бег: 120-180 мин
-                    # Базовые недели: 120 мин, развивающие: до 180 мин
                     if is_recovery_week:
                         session_time = 90  # Разгрузочная неделя
                     elif week_multiplier >= 1.1:
@@ -365,12 +360,10 @@ class PlanGenerator:
                     else:
                         session_time = 120  # Базовый период
                 elif workout_type == 'recovery':
-                    # Восстановительный: 30-45 мин
-                    session_time = 40
+                    session_time = 60  # Восстановительный — минимум 60
                 else:
-                    # Беговые тренировки (easy, intervals, tempo): 60-90 мин
-                    # Минимум 60 мин — базовое правило
-                    session_time = 60 if current_level == 'beginner' else 75
+                    # Обычные тренировки (easy, intervals, tempo, hills): 80 мин
+                    session_time = 80
 
                 # Генерируем детали тренировки
                 workout_details = self._generate_workout_details(
