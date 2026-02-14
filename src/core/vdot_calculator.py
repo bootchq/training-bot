@@ -17,9 +17,8 @@ VDOT = VO2 / F(t)
 - R (Repetition): быстрее 5k — нейромышечная работа, экономичность
 """
 import math
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
-from sqlalchemy import and_
 
 from ..database.db import db, Training
 from ..utils.logger import logger

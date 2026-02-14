@@ -71,9 +71,7 @@ from .workout_templates import (
     HILL_TEMPLATES,
     STRENGTH_TEMPLATES,
     TrainingPeriod,
-    IntervalFocus,
     get_suitable_intervals,
-    format_interval_description,
     format_strength_description,
     format_hill_description,
 )
@@ -112,7 +110,6 @@ class PlanGenerator:
                 'max_hr_at_best': 175,     # Пульс при лучшем темпе
             }
         """
-        from sqlalchemy import func, and_
         from ..database.db import Training
         from datetime import timedelta
         from ..utils import time_utils
@@ -251,7 +248,7 @@ class PlanGenerator:
                 current = self._pace_to_seconds(validated.get('interval', ''))
                 if current:
                     validated['interval'] = self._format_pace(current + 15)
-                    corrections_made.append(f"interval (LTHR коррекция): +15 сек")
+                    corrections_made.append("interval (LTHR коррекция): +15 сек")
 
         if corrections_made:
             logger.warning(
@@ -319,10 +316,6 @@ class PlanGenerator:
         # Определяем уровень подготовки
         current_level = self._get_fitness_level(fitness_level)
 
-        # Корректируем время под уровень
-        time_multiplier = self._get_level_multiplier(current_level)
-        adjusted_time = int(time_per_session * time_multiplier)
-
         # Валидация дней отдыха (минимум 2 дня, не более 3 подряд)
         training_days = self._validate_rest_days(training_days)
 
@@ -356,9 +349,6 @@ class PlanGenerator:
                 # В разгрузочную неделю — без интервалов и горок
                 if is_recovery_week and workout_type in ['intervals', 'vo2max', 'hills']:
                     workout_type = 'easy'
-
-                # Определяем выходной (Сб=5, Вс=6 в weekday())
-                is_weekend = training_date.weekday() >= 5
 
                 # === ПРАВИЛА ДЛИТЕЛЬНОСТИ ===
                 # Беговые тренировки: минимум 60 мин, обычно 60-90 мин
@@ -922,7 +912,7 @@ class PlanGenerator:
             # Пирамида
             structure = template['structure_m']
             main_description = "Пирамида: " + " → ".join([f"{d}м" for d in structure])
-            main_description += f"\nОтдых между отрезками = 50% времени работы"
+            main_description += "\nОтдых между отрезками = 50% времени работы"
             reps = len(structure)
             work_time_formatted = "переменное"
 

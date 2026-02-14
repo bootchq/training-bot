@@ -10,7 +10,7 @@ from ..database.db import Training
 from ..database.db import TrainingPlan
 from ..database.db import db
 from ..utils.logger import logger
-from .runner_state import RunnerState, RunnerStateCalculator, create_runner_state_calculator
+from .runner_state import RunnerState, create_runner_state_calculator
 
 
 class PlanAdapter:
@@ -414,7 +414,7 @@ class PlanAdapter:
 
         if next_training and next_training.type != 'easy':
             # Меняем на лёгкую
-            change = db.update_training_plan(
+            db.update_training_plan(
                 next_training.id,
                 type='easy',
                 description=f"[АДАПТИРОВАНО] Восстановление после перевыполнения. Было: {next_training.type}"

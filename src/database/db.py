@@ -428,9 +428,7 @@ class Database:
                 session.refresh(user)
                 logger.info(f"Создан новый пользователь: {telegram_id}")
 
-            # Загружаем все атрибуты и отсоединяем от сессии
-            user_id = user.id
-            user_telegram_id = user.telegram_id
+            # Отсоединяем от сессии
             session.expunge(user)
             return user
 
@@ -1313,7 +1311,7 @@ class Database:
 
             # Завершили онбординг
             onboarded_users = session.query(User).filter(
-                User.onboarding_completed == True
+                User.onboarding_completed
             ).count()
 
             return {

@@ -267,7 +267,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
             message += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
             # Краткая сводка за 4 недели
-            message += f"📊 *Анализ за 4 недели:*\n\n"
+            message += "📊 *Анализ за 4 недели:*\n\n"
             message += f"📈 Объём: {state.volume.avg_weekly_km:.1f} км/неделя\n"
             message += f"⚡ Интенсив: {state.intensity.intense_minutes_week} мин/неделя ({state.intensity.actual_ratio*100:.0f}%)\n"
 
@@ -408,7 +408,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
         try:
             rec = workout_recommender.get_recommendation(user.id)
 
-            text = f"🏃 **AI рекомендация тренировки**\n\n"
+            text = "🏃 **AI рекомендация тренировки**\n\n"
             text += f"**Тип:** {rec['workout_type']}\n"
             text += f"**Длительность:** {rec['duration_min']} мин\n"
             text += f"**Дистанция:** {rec['distance_km']} км\n"
@@ -431,11 +431,11 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
         try:
             insights = weekly_coach.get_weekly_insights(user.id)
 
-            text = f"📊 **Еженедельный анализ**\n\n"
+            text = "📊 **Еженедельный анализ**\n\n"
             text += f"📝 {insights['summary']}\n\n"
 
             pva = insights['plan_vs_actual']
-            text += f"**План vs Факт:**\n"
+            text += "**План vs Факт:**\n"
             text += f"  Тренировок: {pva['actual_workouts']}/{pva['planned_workouts']} ({pva['completion_rate']:.0f}%)\n"
             text += f"  Дистанция: {pva['actual_distance']:.1f}/{pva['planned_distance']:.1f} км\n\n"
 
@@ -464,7 +464,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
             recovery = recovery_detector.detect_recovery_status(user.id)
             status_emoji = {'rest': '🔴', 'easy': '🟡', 'normal': '🟢', 'hard': '💪'}
 
-            text = f"🔋 **Статус восстановления**\n\n"
+            text = "🔋 **Статус восстановления**\n\n"
             text += f"{status_emoji.get(recovery['status'], '🟢')} **{recovery['status_text']}**\n"
             text += f"Уверенность: {recovery['confidence']*100:.0f}%\n\n"
             text += f"📝 {recovery['reasoning']}\n"
@@ -1117,8 +1117,6 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
 
     async def reset_user(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /reset - сброс авторизации для повторного онбординга"""
-        telegram_id = update.effective_user.id
-
         keyboard = [
             [InlineKeyboardButton("✅ Да, сбросить", callback_data="confirm_reset")],
             [InlineKeyboardButton("❌ Отмена", callback_data="cancel_reset")]

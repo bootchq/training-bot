@@ -36,8 +36,7 @@
 - Элита: 78% объёма медленнее марафонского темпа (исследование 2024)
 """
 
-from typing import Dict, List, Tuple, Optional
-from dataclasses import dataclass
+from typing import Dict, List, Optional
 from enum import Enum
 
 from .vdot_calculator import get_training_paces_seconds, format_pace

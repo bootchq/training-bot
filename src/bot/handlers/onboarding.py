@@ -541,7 +541,6 @@ class OnboardingMixin:
 
     async def ask_plan_days(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Начало создания плана - выбор дней недели"""
-        from datetime import date
 
         query = update.callback_query
         await query.answer()

@@ -164,7 +164,7 @@ class PlanAdjuster:
                 TrainingPlan.user_id == self.user_id,
                 TrainingPlan.date >= today,
                 TrainingPlan.date < today + timedelta(weeks=2),
-                TrainingPlan.is_completed == False
+                ~TrainingPlan.is_completed
             ).all()
 
             adjusted_count = 0

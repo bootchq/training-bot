@@ -319,7 +319,7 @@ def get_level_evidence(user_id: int) -> Dict[str, Any]:
                 "pace": pace_str,
                 "result": f"{dist:.1f} км",
                 "signal": signal,
-                "explanation": f"≥20 км → intermediate, ≥30 км → advanced"
+                "explanation": "≥20 км → intermediate, ≥30 км → advanced"
             })
         else:
             missing.append("Нет записанных тренировок")
@@ -339,7 +339,7 @@ def get_level_evidence(user_id: int) -> Dict[str, Any]:
                 "time": format_time(bt['time_seconds']),
                 "result": f"VDOT {vdot:.1f}" if vdot else "N/A",
                 "signal": signal,
-                "explanation": f"VDOT ≥40 → intermediate, ≥50 → advanced"
+                "explanation": "VDOT ≥40 → intermediate, ≥50 → advanced"
             })
         else:
             # Проверяем есть ли тренировки в расширенном диапазоне (8-11 км)
@@ -352,7 +352,7 @@ def get_level_evidence(user_id: int) -> Dict[str, Any]:
                 Training.duration_min > 0
             ).count()
             if near_10k > 0:
-                missing.append(f"Нет тренировок 8-11 км с корректным временем для расчёта VDOT")
+                missing.append("Нет тренировок 8-11 км с корректным временем для расчёта VDOT")
             else:
                 missing.append("Нет тренировок 8-11 км для расчёта VDOT (пробеги больше 8 км)")
 
@@ -368,7 +368,7 @@ def get_level_evidence(user_id: int) -> Dict[str, Any]:
                 "time": format_time(bt['time_seconds']),
                 "result": f"VDOT {vdot:.1f}" if vdot else "N/A",
                 "signal": signal,
-                "explanation": f"VDOT ≥40 → intermediate, ≥50 → advanced"
+                "explanation": "VDOT ≥40 → intermediate, ≥50 → advanced"
             })
 
         # 3. Найти лучший темп на длинных (15+ км)
@@ -399,7 +399,7 @@ def get_level_evidence(user_id: int) -> Dict[str, Any]:
                     "pace": _format_pace(int(best_pace)),
                     "result": f"темп {_format_pace(int(best_pace))}/км",
                     "signal": signal,
-                    "explanation": f"темп < 7:00/км на длинной → intermediate"
+                    "explanation": "темп < 7:00/км на длинной → intermediate"
                 })
         elif max_dist_training and max_dist_training.distance_km and max_dist_training.distance_km < 15:
             missing.append(f"Нет длинных тренировок 15+ км (макс. {max_dist_training.distance_km:.1f} км)")

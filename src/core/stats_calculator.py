@@ -458,7 +458,6 @@ class StatsCalculator:
 
         # Калории (примерная оценка: 65 ккал на км)
         current_calories = int(current_stats['total_distance'] * 65)
-        prev_calories = int(prev_stats['total_distance'] * 65)
         text += f"  🔥 Калории: {current_calories} ккал\n"
 
         return text

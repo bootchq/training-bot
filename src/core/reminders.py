@@ -371,7 +371,7 @@ class ReminderScheduler:
                 simple = state.get_simple_status()
 
                 # Форматируем сообщение
-                message = f"📊 *Анализ за 4 недели*\n\n"
+                message = "📊 *Анализ за 4 недели*\n\n"
                 message += f"{simple['icon']} *{simple['message']}*\n"
                 message += f"_{simple['detail']}_\n\n"
                 message += "━━━━━━━━━━━━━━━━━━━━\n\n"

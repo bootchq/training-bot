@@ -10,7 +10,6 @@ except ImportError:
 
 from ..database.db import db, WellnessSurvey
 from ..core.fitness_detector import detect_fitness_level
-from ..core.vdot_calculator import get_training_paces_seconds, format_pace
 from ..utils.config import Config
 from ..utils.logger import logger
 

@@ -183,7 +183,6 @@ class SyncMixin:
         UX: сообщение "Подожди 2-5 минут" → редактирование на результат.
         Полная синхронизация: 60 дней + VDOT + LTHR.
         """
-        from ...core.vdot_calculator import calculate_best_vdot, format_vdot_summary, get_training_paces
 
         user = db.get_or_create_user(telegram_id)
         credentials = db.get_user_garmin_credentials(user.id)
