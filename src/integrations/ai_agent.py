@@ -37,8 +37,12 @@ class AIAgent:
 - get_week_plan: посмотреть текущий план на неделю
 - get_recent_trainings: получить историю тренировок
 
-ВАЖНО: Когда пользователь просит план/тренировки на неделю — ВСЕГДА используй generate_week_plan.
-НЕ выдумывай тренировки сам — используй инструмент, он учитывает VDOT, LTHR, историю.
+ВАЖНО:
+- Когда пользователь просит план/тренировки на неделю — ВСЕГДА используй generate_week_plan.
+- НЕ выдумывай тренировки сам — используй инструмент, он учитывает VDOT, LTHR, историю.
+- Когда tool возвращает план — ПОКАЖИ ЕГО КАК ЕСТЬ, не пересказывай и не упрощай.
+- Каждая тренировка содержит описание с зонами, разминкой, заминкой — покажи всё.
+- НЕ заменяй описание на "8 км темп 6:45" — это бесполезно.
 Отвечай кратко, по делу, на русском языке.
 """
 
@@ -377,10 +381,10 @@ class AIAgent:
         if not settings:
             return {"error": "Настройки пользователя не найдены. Пройди /start для настройки."}
 
-        goal_type = settings.get('goal_type', 'race')
-        goal_distance = settings.get('goal_distance_km', 21)
+        goal_type = settings.get('goal_type') or 'race'
+        goal_distance = settings.get('goal_distance_km') or 21
         goal_date_str = settings.get('goal_date')
-        training_days_str = settings.get('training_days', '1,3,5')
+        training_days_str = settings.get('training_days') or '1,3,5'
 
         # Парсим дни тренировок
         try:
@@ -400,7 +404,7 @@ class AIAgent:
         # Генерируем план
         generator = PlanGenerator(user_id)
         trainings = generator.generate_detailed_plan(
-            goal_distance=int(goal_distance),
+            goal_distance=int(goal_distance or 21),
             goal_date=goal_date,
             training_days=training_days,
             time_per_session=60,
@@ -413,28 +417,31 @@ class AIAgent:
         count = generator.save_plan_to_db(trainings)
         logger.info(f"AI сгенерировал план: {count} тренировок на {weeks} нед для user_id={user_id}")
 
-        # Возвращаем читаемый формат
+        # Возвращаем читаемый текстовый формат (AI должен показать как есть)
         days_ru = {0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"}
-        result = []
+        plan_text = f"План на {weeks} нед создан ({count} тренировок):\n\n"
         for t in trainings:
             t_date = t.get('date')
             if t_date:
                 day_name = days_ru.get(t_date.weekday(), "")
-                result.append({
-                    "date": t_date.strftime('%d.%m'),
-                    "day": day_name,
-                    "type": t.get('type', 'easy'),
-                    "duration_min": t.get('duration_min'),
-                    "distance_km": t.get('distance_km'),
-                    "description": (t.get('description') or '')[:200],
-                    "target_zone": t.get('target_zone', ''),
-                })
+                zone = t.get('target_zone', '')
+                duration = t.get('duration_min', '?')
+                distance = t.get('distance_km', '?')
+                goal = t.get('goal', '')
+                desc = t.get('description', '')
+
+                plan_text += f"📅 {day_name} {t_date.strftime('%d.%m')} — {t.get('type', 'easy').upper()}"
+                plan_text += f" | {duration} мин | ~{distance} км | {zone}\n"
+                if goal:
+                    plan_text += f"   {goal}\n"
+                if desc:
+                    plan_text += f"   {desc}\n"
+                plan_text += "\n"
 
         return {
-            "plan": result,
+            "plan_text": plan_text,
             "total_workouts": count,
-            "weeks": weeks,
-            "message": f"План на {weeks} нед создан и сохранён ({count} тренировок)"
+            "message": "ПОКАЖИ ПЛАН ПОЛЬЗОВАТЕЛЮ КАК ЕСТЬ, НЕ ПЕРЕСКАЗЫВАЙ И НЕ УПРОЩАЙ"
         }
 
     def _modify_workout(self, user_id: int, args: dict) -> dict:
