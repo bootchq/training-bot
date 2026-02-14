@@ -18,11 +18,18 @@ class AIAgent:
 1. Отвечать на вопросы о тренировках
 2. Помогать корректировать план
 3. Давать советы по технике бега, питанию, восстановлению
+4. Анализировать историю тренировок пользователя (синхронизированы с Garmin)
+5. Рекомендовать тренировки на основе реальных данных
+
+У тебя есть ПОЛНЫЙ ДОСТУП к истории тренировок пользователя из Garmin Connect.
+В контексте ниже — его реальные тренировки за последние 4 недели, VDOT, LTHR, план.
+Используй эти данные для персонализированных рекомендаций.
 
 У тебя есть инструменты для изменения плана:
 - modify_workout: изменить конкретную тренировку
 - swap_workouts: поменять местами две тренировки
 - skip_workout: пропустить тренировку
+- get_week_plan: получить план на неделю
 
 Когда пользователь просит изменить план — используй инструменты.
 Отвечай кратко, по делу, на русском языке.
@@ -115,6 +122,23 @@ class AIAgent:
                     "required": []
                 }
             }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_recent_trainings",
+                "description": "Получить историю тренировок с Garmin за указанное количество недель",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "weeks": {
+                            "type": "integer",
+                            "description": "Количество недель (1-12, по умолчанию 4)"
+                        }
+                    },
+                    "required": []
+                }
+            }
         }
     ]
 
@@ -201,7 +225,7 @@ class AIAgent:
             return f"Произошла ошибка: {e}"
 
     def _get_user_context(self, user_id: int) -> str:
-        """Получить контекст пользователя для AI"""
+        """Получить полный контекст пользователя для AI (включая тренировки с Garmin)"""
         context_parts = []
 
         # Настройки пользователя
@@ -209,8 +233,10 @@ class AIAgent:
         if settings:
             goal_names = {
                 'race': 'Забег',
+                'trail': 'Трейл',
                 'weight_loss': 'Похудение',
-                'endurance': 'Выносливость'
+                'endurance': 'Выносливость',
+                'fitness': 'Фитнес'
             }
             exp_names = {
                 'beginner': 'Новичок',
@@ -218,24 +244,69 @@ class AIAgent:
                 'advanced': 'Опытный'
             }
 
-            context_parts.append(f"Цель: {goal_names.get(settings.get('goal_type'), 'Не указана')}")
+            context_parts.append(f"Цель: {goal_names.get(settings.get('goal_type'), settings.get('goal_type', 'Не указана'))}")
             if settings.get('goal_distance_km'):
-                context_parts.append(f"Дистанция: {settings['goal_distance_km']} км")
+                context_parts.append(f"Дистанция цели: {settings['goal_distance_km']} км")
             if settings.get('goal_date'):
                 context_parts.append(f"Дата забега: {settings['goal_date']}")
+            if settings.get('goal_elevation_gain'):
+                context_parts.append(f"Набор высоты цели: {settings['goal_elevation_gain']} м")
             context_parts.append(f"Опыт: {exp_names.get(settings.get('experience_level'), 'Не указан')}")
 
-        # План на неделю
+            # VDOT и LTHR
+            if settings.get('vdot'):
+                context_parts.append(f"VDOT: {settings['vdot']:.1f} (Jack Daniels)")
+            if settings.get('lthr'):
+                context_parts.append(f"LTHR: {settings['lthr']} уд/мин")
+
+        # Последние тренировки с Garmin (за 4 недели)
         today = date.today()
+        four_weeks_ago = today - timedelta(days=28)
+        trainings = db.get_trainings_for_period(user_id, four_weeks_ago, today)
+
+        if trainings:
+            total_km = sum(t.distance_km or 0 for t in trainings)
+            total_min = sum(t.duration_min or 0 for t in trainings)
+            avg_weekly_km = total_km / 4
+
+            context_parts.append("\n--- Тренировки с Garmin (последние 4 недели) ---")
+            context_parts.append(f"Всего тренировок: {len(trainings)}")
+            context_parts.append(f"Общая дистанция: {total_km:.1f} км ({avg_weekly_km:.1f} км/нед)")
+            context_parts.append(f"Общее время: {total_min} мин")
+
+            days_ru = {0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"}
+
+            context_parts.append("\nПоследние тренировки:")
+            for t in trainings[-10:]:  # Последние 10
+                day = days_ru.get(t.date.weekday(), "") if t.date else ""
+                pace_str = ""
+                if t.distance_km and t.duration_min and t.distance_km > 0:
+                    pace_sec = (t.duration_min * 60) / t.distance_km
+                    pace_str = f", темп {int(pace_sec)//60}:{int(pace_sec)%60:02d}/км"
+                hr_str = f", пульс ср {t.avg_hr}" if t.avg_hr else ""
+                elev_str = f", набор {t.elevation_m}м" if t.elevation_m else ""
+                context_parts.append(
+                    f"  {day} {t.date.strftime('%d.%m') if t.date else '?'}: "
+                    f"{t.distance_km or 0:.1f} км, {t.duration_min or 0} мин"
+                    f"{pace_str}{hr_str}{elev_str}"
+                )
+        else:
+            context_parts.append("\n--- Тренировки с Garmin: нет данных за последние 4 недели ---")
+
+        # План на неделю
         start_of_week = today - timedelta(days=today.weekday())
         plans = db.get_plan_for_week(user_id, start_of_week)
 
         if plans:
-            context_parts.append("\nПлан на неделю:")
+            context_parts.append("\n--- План на текущую неделю ---")
             days_ru = {0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"}
             for plan in plans:
                 day = days_ru.get(plan.date.weekday(), "")
-                context_parts.append(f"  {day} {plan.date.strftime('%d.%m')}: {plan.type} ({plan.duration_min or '?'} мин)")
+                status = "✓" if plan.is_completed else "○"
+                context_parts.append(
+                    f"  {status} {day} {plan.date.strftime('%d.%m')}: {plan.type} "
+                    f"({plan.duration_min or '?'} мин, {plan.distance_km or '?'} км)"
+                )
 
         context_parts.append(f"\nСегодня: {today.strftime('%d.%m.%Y')} ({['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'][today.weekday()]})")
 
@@ -252,6 +323,8 @@ class AIAgent:
                 return self._skip_workout(user_id, args)
             elif function_name == "get_week_plan":
                 return self._get_week_plan(user_id)
+            elif function_name == "get_recent_trainings":
+                return self._get_recent_trainings(user_id, args)
             else:
                 return {"error": f"Неизвестная функция: {function_name}"}
         except Exception as e:
@@ -321,6 +394,51 @@ class AIAgent:
 
             logger.info(f"Тренировка на {target_date} пропущена для user_id={user_id}")
             return {"success": True, "message": f"Тренировка на {target_date.strftime('%d.%m')} пропущена"}
+
+    def _get_recent_trainings(self, user_id: int, args: dict) -> dict:
+        """Получить историю тренировок за N недель"""
+        weeks = min(args.get('weeks', 4), 12)
+        start_date = date.today() - timedelta(days=weeks * 7)
+        trainings = db.get_trainings_for_period(user_id, start_date, date.today())
+
+        if not trainings:
+            return {"message": f"Нет тренировок за последние {weeks} недель"}
+
+        result = []
+        days_ru = {0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"}
+        total_km = 0
+        total_min = 0
+
+        for t in trainings:
+            day = days_ru.get(t.date.weekday(), "") if t.date else ""
+            pace_str = ""
+            if t.distance_km and t.duration_min and t.distance_km > 0:
+                pace_sec = (t.duration_min * 60) / t.distance_km
+                pace_str = f"{int(pace_sec)//60}:{int(pace_sec)%60:02d}/км"
+            total_km += t.distance_km or 0
+            total_min += t.duration_min or 0
+
+            result.append({
+                "date": t.date.isoformat() if t.date else None,
+                "day": day,
+                "distance_km": t.distance_km,
+                "duration_min": t.duration_min,
+                "avg_hr": t.avg_hr,
+                "max_hr": t.max_hr,
+                "avg_pace": pace_str,
+                "elevation_m": t.elevation_m,
+            })
+
+        return {
+            "trainings": result,
+            "summary": {
+                "count": len(trainings),
+                "total_km": round(total_km, 1),
+                "total_min": total_min,
+                "avg_weekly_km": round(total_km / max(weeks, 1), 1),
+                "avg_weekly_sessions": round(len(trainings) / max(weeks, 1), 1),
+            }
+        }
 
     def _get_week_plan(self, user_id: int) -> dict:
         """Получить план на неделю"""
