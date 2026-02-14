@@ -1,6 +1,6 @@
 """AI детектор восстановления на основе wellness + HRV + sRPE"""
 from datetime import date, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any
 
 try:
     from openai import OpenAI

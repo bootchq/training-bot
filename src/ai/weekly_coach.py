@@ -1,6 +1,6 @@
 """AI еженедельный анализ тренировок с персональными советами"""
 from datetime import date, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 
 try:
     from openai import OpenAI
@@ -8,8 +8,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-from ..database.db import db, Training, TrainingPlan
-from ..core.vdot_calculator import calculate_vdot_from_time
+from ..database.db import db
 from ..utils.config import Config
 from ..utils.logger import logger
 from ..utils import time_utils
@@ -251,7 +250,7 @@ class WeeklyCoach:
             prompt += "- Недостаточно данных\n"
 
         if week_data.get('goal_type'):
-            prompt += f"\n**Цель бегуна:**\n"
+            prompt += "\n**Цель бегуна:**\n"
             prompt += f"- Тип: {week_data['goal_type']}\n"
             if week_data.get('goal_distance_km'):
                 prompt += f"- Дистанция: {week_data['goal_distance_km']} км\n"

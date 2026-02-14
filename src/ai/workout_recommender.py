@@ -1,6 +1,6 @@
 """AI рекомендации персонализированных тренировок на основе истории и wellness данных"""
 from datetime import date, timedelta
-from typing import Optional, Dict, Any, List
+from typing import Dict, Any, List
 
 try:
     from openai import OpenAI
@@ -8,7 +8,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-from ..database.db import db, Training, WellnessSurvey
+from ..database.db import db, WellnessSurvey
 from ..core.fitness_detector import detect_fitness_level
 from ..core.vdot_calculator import get_training_paces_seconds, format_pace
 from ..utils.config import Config
