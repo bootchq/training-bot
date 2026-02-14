@@ -7,6 +7,7 @@ from openai import OpenAI
 
 from ..database.db import TrainingPlan
 from ..database.db import db
+from ..utils import time_utils
 from ..utils.config import Config
 from ..utils.logger import logger
 
@@ -14,28 +15,51 @@ from ..utils.logger import logger
 class AIAgent:
     """AI-агент с возможностью изменения плана"""
 
-    SYSTEM_PROMPT = """Ты — AI тренер по бегу. Твоя задача:
+    SYSTEM_PROMPT_TEMPLATE = """Ты — AI тренер по бегу.
+
+СЕГОДНЯ: {today} ({weekday}). Используй эту дату во всех ответах.
+
+Твоя задача:
 1. Отвечать на вопросы о тренировках
-2. Помогать корректировать план
+2. Помогать корректировать и генерировать план
 3. Давать советы по технике бега, питанию, восстановлению
 4. Анализировать историю тренировок пользователя (синхронизированы с Garmin)
 5. Рекомендовать тренировки на основе реальных данных
 
 У тебя есть ПОЛНЫЙ ДОСТУП к истории тренировок пользователя из Garmin Connect.
 В контексте ниже — его реальные тренировки за последние 4 недели, VDOT, LTHR, план.
-Используй эти данные для персонализированных рекомендаций.
 
-У тебя есть инструменты для изменения плана:
+У тебя есть инструменты:
+- generate_week_plan: СГЕНЕРИРОВАТЬ новый план на неделю (персонализированный, по VDOT/LTHR)
 - modify_workout: изменить конкретную тренировку
 - swap_workouts: поменять местами две тренировки
 - skip_workout: пропустить тренировку
-- get_week_plan: получить план на неделю
+- get_week_plan: посмотреть текущий план на неделю
+- get_recent_trainings: получить историю тренировок
 
-Когда пользователь просит изменить план — используй инструменты.
+ВАЖНО: Когда пользователь просит план/тренировки на неделю — ВСЕГДА используй generate_week_plan.
+НЕ выдумывай тренировки сам — используй инструмент, он учитывает VDOT, LTHR, историю.
 Отвечай кратко, по делу, на русском языке.
 """
 
     TOOLS = [
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_week_plan",
+                "description": "Сгенерировать персонализированный план тренировок на неделю. Использует VDOT, LTHR, историю с Garmin, цель пользователя.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "weeks": {
+                            "type": "integer",
+                            "description": "Количество недель плана (по умолчанию 1)"
+                        }
+                    },
+                    "required": []
+                }
+            }
+        },
         {
             "type": "function",
             "function": {
@@ -178,8 +202,16 @@ class AIAgent:
             # Получаем контекст пользователя
             context = self._get_user_context(user_id)
 
+            # Динамический system prompt с актуальной датой
+            today = time_utils.today()
+            days_ru = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье']
+            system_prompt = self.SYSTEM_PROMPT_TEMPLATE.format(
+                today=today.strftime('%d.%m.%Y'),
+                weekday=days_ru[today.weekday()]
+            )
+
             messages = [
-                {"role": "system", "content": self.SYSTEM_PROMPT + f"\n\nКонтекст пользователя:\n{context}"},
+                {"role": "system", "content": system_prompt + f"\n\nКонтекст пользователя:\n{context}"},
                 {"role": "user", "content": message}
             ]
 
@@ -260,7 +292,7 @@ class AIAgent:
                 context_parts.append(f"LTHR: {settings['lthr']} уд/мин")
 
         # Последние тренировки с Garmin (за 4 недели)
-        today = date.today()
+        today = time_utils.today()
         four_weeks_ago = today - timedelta(days=28)
         trainings = db.get_trainings_for_period(user_id, four_weeks_ago, today)
 
@@ -315,7 +347,9 @@ class AIAgent:
     def _execute_tool(self, user_id: int, function_name: str, args: dict) -> dict:
         """Выполнить инструмент"""
         try:
-            if function_name == "modify_workout":
+            if function_name == "generate_week_plan":
+                return self._generate_week_plan(user_id, args)
+            elif function_name == "modify_workout":
                 return self._modify_workout(user_id, args)
             elif function_name == "swap_workouts":
                 return self._swap_workouts(user_id, args)
@@ -330,6 +364,78 @@ class AIAgent:
         except Exception as e:
             logger.error(f"Ошибка выполнения {function_name}: {e}")
             return {"error": str(e)}
+
+    def _generate_week_plan(self, user_id: int, args: dict) -> dict:
+        """Сгенерировать план на неделю через PlanGenerator"""
+        from ..core.plan_generator import PlanGenerator
+
+        today = time_utils.today()
+        weeks = min(args.get('weeks', 1), 4)
+
+        # Получаем настройки пользователя
+        settings = db.get_user_settings(user_id)
+        if not settings:
+            return {"error": "Настройки пользователя не найдены. Пройди /start для настройки."}
+
+        goal_type = settings.get('goal_type', 'race')
+        goal_distance = settings.get('goal_distance_km', 21)
+        goal_date_str = settings.get('goal_date')
+        training_days_str = settings.get('training_days', '1,3,5')
+
+        # Парсим дни тренировок
+        try:
+            training_days = [int(d.strip()) for d in str(training_days_str).split(',') if d.strip()]
+        except (ValueError, AttributeError):
+            training_days = [1, 3, 5]
+
+        # Дата забега
+        if goal_date_str:
+            try:
+                goal_date = date.fromisoformat(str(goal_date_str)[:10])
+            except ValueError:
+                goal_date = today + timedelta(weeks=12)
+        else:
+            goal_date = today + timedelta(weeks=12)
+
+        # Генерируем план
+        generator = PlanGenerator(user_id)
+        trainings = generator.generate_detailed_plan(
+            goal_distance=int(goal_distance),
+            goal_date=goal_date,
+            training_days=training_days,
+            time_per_session=60,
+            weeks=weeks,
+            goal_type=goal_type,
+            fitness_level=settings.get('experience_level')
+        )
+
+        # Сохраняем в БД
+        count = generator.save_plan_to_db(trainings)
+        logger.info(f"AI сгенерировал план: {count} тренировок на {weeks} нед для user_id={user_id}")
+
+        # Возвращаем читаемый формат
+        days_ru = {0: "Пн", 1: "Вт", 2: "Ср", 3: "Чт", 4: "Пт", 5: "Сб", 6: "Вс"}
+        result = []
+        for t in trainings:
+            t_date = t.get('date')
+            if t_date:
+                day_name = days_ru.get(t_date.weekday(), "")
+                result.append({
+                    "date": t_date.strftime('%d.%m'),
+                    "day": day_name,
+                    "type": t.get('type', 'easy'),
+                    "duration_min": t.get('duration_min'),
+                    "distance_km": t.get('distance_km'),
+                    "description": (t.get('description') or '')[:200],
+                    "target_zone": t.get('target_zone', ''),
+                })
+
+        return {
+            "plan": result,
+            "total_workouts": count,
+            "weeks": weeks,
+            "message": f"План на {weeks} нед создан и сохранён ({count} тренировок)"
+        }
 
     def _modify_workout(self, user_id: int, args: dict) -> dict:
         """Изменить тренировку"""
@@ -398,8 +504,9 @@ class AIAgent:
     def _get_recent_trainings(self, user_id: int, args: dict) -> dict:
         """Получить историю тренировок за N недель"""
         weeks = min(args.get('weeks', 4), 12)
-        start_date = date.today() - timedelta(days=weeks * 7)
-        trainings = db.get_trainings_for_period(user_id, start_date, date.today())
+        today = time_utils.today()
+        start_date = today - timedelta(days=weeks * 7)
+        trainings = db.get_trainings_for_period(user_id, start_date, today)
 
         if not trainings:
             return {"message": f"Нет тренировок за последние {weeks} недель"}
@@ -442,7 +549,7 @@ class AIAgent:
 
     def _get_week_plan(self, user_id: int) -> dict:
         """Получить план на неделю"""
-        today = date.today()
+        today = time_utils.today()
         start_of_week = today - timedelta(days=today.weekday())
         plans = db.get_plan_for_week(user_id, start_of_week)
 
