@@ -46,9 +46,10 @@
    - Не более 3 тренировочных дней подряд
 
 8. ТРЕЙЛОВАЯ СПЕЦИФИКА:
-   - Горки вместо обычных интервалов (30% шанс)
-   - Целевой набор высоты = 50-80% от соревновательного
+   - Горки каждую чётную неделю (чередование hills/intervals)
+   - Целевой набор высоты в длинных: ~30м/км
    - Время на ногах важнее темпа
+   - Страйды после лёгких тренировок (через неделю)
 """
 from datetime import date
 from datetime import datetime
@@ -326,7 +327,7 @@ class PlanGenerator:
         training_days = self._validate_rest_days(training_days)
 
         # Определяем типы тренировок по правилу 80/20
-        workout_schedule = self._create_80_20_schedule(training_days, weeks)
+        workout_schedule = self._create_80_20_schedule(training_days, weeks, goal_type=goal_type)
 
         for week_num in range(weeks):
             # Разгрузочная неделя каждая 4-я
@@ -352,8 +353,8 @@ class PlanGenerator:
                 if 0 < days_to_race <= 3:
                     workout_type = 'recovery'
 
-                # В разгрузочную неделю — без интервалов
-                if is_recovery_week and workout_type in ['intervals', 'vo2max']:
+                # В разгрузочную неделю — без интервалов и горок
+                if is_recovery_week and workout_type in ['intervals', 'vo2max', 'hills']:
                     workout_type = 'easy'
 
                 # Определяем выходной (Сб=5, Вс=6 в weekday())
@@ -411,7 +412,7 @@ class PlanGenerator:
         return trainings
 
     def _get_fitness_level(self, explicit_level: str = None) -> str:
-        """Определить уровень подготовки"""
+        """Определить уровень подготовки с учётом стабильности"""
         from ..core.stats_calculator import StatsCalculator
 
         calculator = StatsCalculator(self.user_id)
@@ -420,7 +421,13 @@ class PlanGenerator:
         if stats['trainings_count'] > 0:
             # Автоопределение по истории
             avg_weekly = stats['total_distance'] / 4
-            if avg_weekly < 20:
+
+            # Проверка стабильности: сколько недель реально тренировался
+            # Если <1.5 тренировки в неделю в среднем — понизить уровень
+            avg_weekly_sessions = stats['trainings_count'] / 4
+            is_inconsistent = avg_weekly_sessions < 1.5
+
+            if avg_weekly < 20 or is_inconsistent:
                 return 'beginner'
             elif avg_weekly < 40:
                 return 'intermediate'
@@ -430,19 +437,40 @@ class PlanGenerator:
         return explicit_level or 'beginner'
 
     def _get_level_multiplier(self, level: str) -> float:
-        """Множитель времени по уровню"""
-        multipliers = {
+        """Множитель времени по уровню с учётом стабильности"""
+        from ..core.stats_calculator import StatsCalculator
+
+        base_multipliers = {
             'beginner': 0.85,
             'intermediate': 1.0,
             'advanced': 1.15
         }
-        return multipliers.get(level, 1.0)
+        multiplier = base_multipliers.get(level, 1.0)
+
+        # Дополнительная коррекция для нестабильных бегунов
+        try:
+            calculator = StatsCalculator(self.user_id)
+            stats = calculator.get_month_stats()
+            if stats['trainings_count'] > 0:
+                avg_weekly_sessions = stats['trainings_count'] / 4
+                # Менее 2 тренировок в неделю → снижаем на 15%
+                if avg_weekly_sessions < 2:
+                    multiplier *= 0.85
+                    logger.info(
+                        f"User {self.user_id}: стабильность {avg_weekly_sessions:.1f} тр/нед "
+                        f"→ множитель снижен до {multiplier:.2f}"
+                    )
+        except Exception:
+            pass
+
+        return multiplier
 
     def _get_workout_goal(self, workout_type: str) -> str:
         """Получить цель тренировки для отображения пользователю"""
         goals = {
             'intervals': "Цель: Повышение VO2max — рост выносливости",
             'vo2max': "Цель: Повышение VO2max — рост выносливости",
+            'hills': "Цель: Сила ног и горная специфика — подготовка к трейлу",
             'tempo': "Цель: Развитие порогового темпа — увеличение скорости",
             'threshold': "Цель: Развитие порогового темпа — увеличение скорости",
             'long': "Цель: Развитие аэробной базы — выносливость на длинных дистанциях",
@@ -479,40 +507,52 @@ class PlanGenerator:
                 return 0.5
             return 0.7
 
-    def _create_80_20_schedule(self, training_days: List[int], weeks: int) -> Dict[tuple, str]:
+    def _create_80_20_schedule(self, training_days: List[int], weeks: int,
+                               goal_type: str = 'race') -> Dict[tuple, str]:
         """
         Создать расписание по правилу 80/20
 
         80% тренировок — лёгкие (easy, long, recovery)
         20% тренировок — интенсивные (intervals, tempo, threshold)
+
+        Умный порядок дней:
+        - Long → самый поздний день (выходной)
+        - Intervals/Hills → средний день (середина недели)
+        - Easy → самый ранний день
         """
         schedule = {}
         num_days = len(training_days)
+        sorted_days = sorted(training_days)
 
         # Распределение типов тренировок по количеству дней
-        # Ключевые тренировки: максимум 2 в неделю
         if num_days <= 2:
-            # 2 дня: easy + long
-            types = ['easy', 'long']
+            types_ordered = ['easy', 'long']
         elif num_days == 3:
-            # 3 дня: intervals + easy + long (1 интенсивная из 3 = 33%, но длинная это тоже база)
-            types = ['intervals', 'easy', 'long']
+            types_ordered = ['easy', 'intervals', 'long']
         elif num_days == 4:
-            # 4 дня: intervals + easy + tempo + long (2 интенсивные из 4 = 50% -> нужно скорректировать)
-            # По 80/20: 80% = 3.2 лёгких, 20% = 0.8 интенсивных
-            # Компромисс: 1 интенсивная + 3 лёгких, но длинная = база
-            types = ['intervals', 'easy', 'easy', 'long']
+            types_ordered = ['easy', 'intervals', 'easy', 'long']
         elif num_days == 5:
-            # 5 дней: 80% = 4 лёгких, 20% = 1 интенсивная
-            types = ['intervals', 'easy', 'easy', 'easy', 'long']
+            types_ordered = ['easy', 'intervals', 'easy', 'easy', 'long']
         else:
-            # 6+ дней: добавляем темповую как вторую ключевую
-            types = ['intervals', 'easy', 'tempo', 'easy', 'long', 'recovery']
-            types = types[:num_days]
+            types_ordered = ['easy', 'intervals', 'easy', 'tempo', 'long', 'recovery']
+            types_ordered = types_ordered[:num_days]
+
+        # Маппинг: тип → позиция в sorted_days
+        # Long → последний день, Intervals/Hills → средний, Easy → ранний
+        day_to_type = {}
+        for i, day_num in enumerate(sorted_days):
+            day_to_type[day_num] = types_ordered[i] if i < len(types_ordered) else 'easy'
 
         for week_num in range(weeks):
-            for i, day_num in enumerate(training_days):
-                workout_type = types[i] if i < len(types) else 'easy'
+            for day_num in sorted_days:
+                workout_type = day_to_type[day_num]
+
+                # Для trail: чередование hills/intervals (нечётная=hills, чётная=intervals)
+                if goal_type == 'trail' and workout_type == 'intervals':
+                    if week_num % 2 == 0:
+                        workout_type = 'hills'
+                    # Нечётные недели оставляем intervals
+
                 schedule[(week_num, day_num)] = workout_type
 
         return schedule
@@ -710,7 +750,10 @@ class PlanGenerator:
         # Базовый темп для расчёта дистанции
         base_pace = self._get_base_pace(goal_type, goal_distance)
 
-        if workout_type == 'intervals' or workout_type == 'vo2max':
+        if workout_type == 'hills':
+            details = self._generate_hills(main_time, warmup, cooldown,
+                                           'medium_hills', pace_info, hr_info)
+        elif workout_type == 'intervals' or workout_type == 'vo2max':
             details = self._generate_intervals(
                 main_time, warmup, cooldown, goal_type, pace_info, hr_info,
                 week_num=week_num, total_weeks=total_weeks, goal_distance=goal_distance
@@ -724,7 +767,8 @@ class PlanGenerator:
         elif workout_type == 'strength':
             details = self._generate_strength('sbu_drills')
         else:  # easy
-            details = self._generate_easy(main_time, warmup, cooldown, goal_type, pace_info, hr_info)
+            details = self._generate_easy(main_time, warmup, cooldown, goal_type, pace_info, hr_info,
+                                          is_recovery_week=is_recovery_week, week_num=week_num)
 
         # Расчёт дистанции
         details['distance_km'] = self._calculate_distance(total_time, workout_type, base_pace)
@@ -790,6 +834,7 @@ class PlanGenerator:
             'threshold': 0.92,
             'intervals': 0.95,
             'vo2max': 0.95,
+            'hills': 1.1,
         }
         multiplier = pace_multipliers.get(workout_type, 1.0)
         return round(total_time / (base_pace * multiplier), 1)
@@ -982,11 +1027,16 @@ class PlanGenerator:
 
         if goal_type == 'trail':
             # Для трейла — время на ногах важнее темпа
-            elevation_target = int(goal_distance * 30)  # Примерно 30м набора на км
+            # Целевой набор для длинной: ~30м на каждый км дистанции тренировки
+            distance_estimate = total_time / 7.5  # км примерно
+            training_elev = int(distance_estimate * 30)
             description = (
                 f"**Длинная трейловая**\n"
                 f"- {total_time} мин в Z2 (разговорный темп)\n"
-                f"- Рекомендуемый набор: ~{elevation_target}м"
+                f"- Целевой набор высоты: ~{training_elev}м\n"
+                f"- Шагай в крутые горки (>15%), бежай пологие (<10%)\n"
+                f"- На спусках: короткий шаг, мягкое приземление\n"
+                f"- Бери воду если >90 мин"
             )
         elif goal_distance >= 42:
             # Марафон — с марафонским темпом в конце
@@ -1043,7 +1093,8 @@ class PlanGenerator:
         }
 
     def _generate_easy(self, main_time: int, warmup: int, cooldown: int,
-                      goal_type: str, pace_info: str, hr_info: str) -> Dict:
+                      goal_type: str, pace_info: str, hr_info: str,
+                      is_recovery_week: bool = False, week_num: int = 0) -> Dict:
         """Генерация лёгкой аэробной тренировки"""
         total_time = main_time + warmup + cooldown
 
@@ -1066,6 +1117,10 @@ class PlanGenerator:
             description += f"\n- {pace_info}"
         if hr_info:
             description += f"\n- Пульс: {hr_info}"
+
+        # Страйды через неделю (не в разгрузочную)
+        if not is_recovery_week and week_num % 2 == 0:
+            description += "\n\nПосле бега: 4-6x100м страйды (Z5, 15-20 сек, полное восстановление)"
 
         description += f"\n\n{tips}"
 

@@ -23,6 +23,7 @@ from ..database.db import db
 from ..ai.workout_recommender import workout_recommender
 from ..ai.recovery_detector import recovery_detector
 from ..ai.weekly_coach import weekly_coach
+from ..ai.smart_advisor import smart_advisor
 from ..integrations.calendar_sync import calendar_sync
 from ..utils import time_utils
 from ..utils.config import Config
@@ -85,6 +86,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
         self.app.add_handler(CommandHandler("ai_suggest", self.ai_suggest_command))
         self.app.add_handler(CommandHandler("weekly", self.weekly_command))
         self.app.add_handler(CommandHandler("recovery", self.recovery_command))
+        self.app.add_handler(CommandHandler("next", self.next_workout))
 
         # ВАЖНО: Standalone CallbackQueryHandlers ДО ConversationHandlers
         # чтобы они не были заблокированы
@@ -201,6 +203,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
 📋 Доступные команды:
 
 /start — Начало работы
+/next — Лучшая тренировка на сегодня (умный анализ)
 /sync — Синхронизация с Garmin (вручную)
 /plan — План тренировок на текущую неделю
 /state — Текущее состояние (анализ за 4 недели)
@@ -486,6 +489,68 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
         except Exception as e:
             logger.error(f"Ошибка /recovery: {e}")
             await update.message.reply_text("Не удалось определить статус восстановления.")
+
+    async def next_workout(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /next - умная рекомендация тренировки"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        msg = await update.message.reply_text("🧠 Анализирую план и тренировки за 3 недели...")
+
+        try:
+            # Синхронизируем свежие данные
+            try:
+                await self._sync_with_status(telegram_id, update.message, context, is_registration=False)
+            except Exception:
+                pass  # Продолжаем даже если синхронизация не удалась
+
+            rec = smart_advisor.get_smart_recommendation(user.id)
+
+            # Форматируем ответ
+            text = "🏃 **Рекомендация на сегодня**\n\n"
+            text += f"**{rec['workout_type']}**"
+            if rec.get('duration_min') and rec['duration_min'] > 0:
+                text += f" | {rec['duration_min']} мин"
+            if rec.get('distance_km') and rec['distance_km'] > 0:
+                text += f" | ~{rec['distance_km']} км"
+            if rec.get('target_zone') and rec['target_zone'] != '-':
+                text += f" | {rec['target_zone']}"
+            text += "\n\n"
+
+            # Описание тренировки
+            if rec.get('description'):
+                text += f"{rec['description']}\n\n"
+
+            # Почему эта тренировка
+            if rec.get('reasoning'):
+                text += f"💡 _{rec['reasoning']}_\n\n"
+
+            # Контекст плана
+            plan_status = rec.get('plan_status', {})
+            if plan_status:
+                text += "━━━━━━━━━━━━━━━━━━━━\n"
+                text += f"📊 Эта неделя: {plan_status.get('done_this_week', '?')}/{plan_status.get('planned_this_week', '?')} тренировок\n"
+                if plan_status.get('days_since_last_run', 0) > 0:
+                    text += f"⏱ Дней без бега: {plan_status['days_since_last_run']}\n"
+                skipped = plan_status.get('skipped_types', [])
+                if skipped:
+                    text += f"⚠️ Пропущено за 3 нед: {', '.join(skipped[:5])}\n"
+
+            # Recovery
+            recovery_status = rec.get('recovery_status', '')
+            if recovery_status:
+                status_emoji = {'rest': '🔴', 'easy': '🟡', 'normal': '🟢', 'hard': '💪'}
+                text += f"{status_emoji.get(recovery_status, '🟢')} Recovery: {recovery_status}\n"
+
+            await msg.edit_text(text, parse_mode='Markdown')
+            logger.info(f"/next для user {telegram_id}: {rec['workout_type']}")
+
+        except Exception as e:
+            logger.error(f"Ошибка /next: {e}", exc_info=True)
+            await msg.edit_text(
+                "Не удалось получить рекомендацию.\n\n"
+                "Попробуй /sync для обновления данных, затем /next снова."
+            )
 
     async def stats(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Команда /stats - выбор периода статистики"""
@@ -1136,6 +1201,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
         commands = [
             BotCommand("start", "Начало работы"),
             BotCommand("help", "Помощь"),
+            BotCommand("next", "Лучшая тренировка на сегодня"),
             BotCommand("sync", "Синхронизация с Garmin"),
             BotCommand("stats", "Статистика за неделю/месяц"),
             BotCommand("state", "Текущее состояние (анализ за 4 недели)"),
