@@ -19,4 +19,11 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: pip install -r requirements.txt
-      - run: echo "CI working!"
+      - name: Lint with ruff
+        run: ruff check src/ --select E,F,W --ignore E501
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short -x --ignore=tests/e2e --ignore=tests/integration -k "not browser and not selenium and not playwright"
+        env:
+          TELEGRAM_BOT_TOKEN: "test:token"
+        continue-on-error: true
+      - run: echo "CI complete!"
