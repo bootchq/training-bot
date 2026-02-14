@@ -868,8 +868,9 @@ class Database:
                 logger.warning(f"Пользователь {telegram_id} не найден")
                 return False
 
+            from ..utils.crypto import encrypt
             user.garmin_email = email
-            user.garmin_password = password
+            user.garmin_password = encrypt(password)
 
             logger.info(f"Сохранены учетные данные Garmin для пользователя {telegram_id}")
             return True
@@ -890,7 +891,8 @@ class Database:
             if not user or not user.garmin_email:
                 return None
 
-            return (user.garmin_email, user.garmin_password)
+            from ..utils.crypto import decrypt
+            return (user.garmin_email, decrypt(user.garmin_password))
 
     def save_user_strava_credentials(self, user_id: int, access_token: str, refresh_token: str, expires_at: int) -> bool:
         """

@@ -126,9 +126,23 @@ class ReminderScheduler:
 
     def _get_today_plan(self, user_id: int) -> Optional[str]:
         """Получить план тренировки на сегодня"""
-        # TODO: интеграция с планировщиком тренировок
-        # Пока возвращаем None, потом доработаем
-        return None
+        from ..utils import time_utils
+
+        plan = db.get_plan_for_date(user_id, time_utils.today())
+        if not plan:
+            return None
+
+        parts = []
+        if plan.type:
+            parts.append(plan.type)
+        if plan.distance_km:
+            parts.append(f"{plan.distance_km:.1f} км")
+        if plan.duration_min:
+            parts.append(f"~{plan.duration_min} мин")
+        if plan.target_zone:
+            parts.append(f"зона {plan.target_zone}")
+
+        return ", ".join(parts) if parts else None
 
     def schedule_missed_training_check(self):
         """Настроить ежедневную проверку пропущенных тренировок"""

@@ -21,6 +21,7 @@ from telegram import Update
 
 from src.bot.telegram_bot import TrainingBot
 from src.database.init_db import init_database
+from src.utils.alerting import send_alert
 from src.utils.health_check import health_server
 from src.utils.logger import logger
 
@@ -60,6 +61,7 @@ async def run_bot():
 
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}", exc_info=True)
+        send_alert("Service 1 CRASHED", error=e)
         raise
     finally:
         # Останавливаем бота

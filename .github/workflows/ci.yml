@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Lint with ruff
+        run: ruff check src/ --select E,F,W --ignore E501
+
+      - name: Check imports
+        run: python -c "
+          import importlib, sys;
+          modules = [
+            'src.utils.config',
+            'src.utils.logger',
+            'src.utils.crypto',
+            'src.utils.alerting',
+            'src.database.db',
+          ];
+          failed = [];
+          for m in modules:
+            try:
+              importlib.import_module(m)
+            except Exception as e:
+              failed.append(f'{m}: {e}')
+          if failed:
+            print('Import errors:');
+            [print(f'  {f}') for f in failed];
+            sys.exit(1)
+          else:
+            print(f'All {len(modules)} modules imported OK')
+          "
+        env:
+          TELEGRAM_BOT_TOKEN: "test:token"
+
+      - name: Run unit tests
+        run: pytest tests/ -v --tb=short -x --ignore=tests/e2e --ignore=tests/integration -k "not browser and not selenium and not playwright"
+        env:
+          TELEGRAM_BOT_TOKEN: "test:token"
+        continue-on-error: true

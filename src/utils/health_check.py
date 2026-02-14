@@ -37,17 +37,33 @@ class HealthCheckServer:
 
         Возвращает:
             200 OK с информацией о статусе бота
+            503 если БД недоступна
         """
         uptime = datetime.now() - self.start_time
 
+        # Проверка БД
+        db_ok = False
+        try:
+            from ..database.db import db
+            from sqlalchemy import text
+            with db.get_session() as session:
+                session.execute(text("SELECT 1"))
+            db_ok = True
+        except Exception as e:
+            logger.error(f"Health check: БД недоступна: {e}")
+
+        status = 'healthy' if db_ok else 'degraded'
+        status_code = 200 if db_ok else 503
+
         response_data = {
-            'status': 'healthy',
+            'status': status,
             'service': 'training-bot',
             'uptime_seconds': int(uptime.total_seconds()),
+            'database': 'ok' if db_ok else 'error',
             'timestamp': datetime.now().isoformat()
         }
 
-        return web.json_response(response_data)
+        return web.json_response(response_data, status=status_code)
 
     async def serve_ics(self, request):
         """

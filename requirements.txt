@@ -18,10 +18,14 @@ APScheduler==3.10.4
 
 # Database
 sqlalchemy==2.0.25
+alembic==1.14.1
 psycopg[binary]==3.2.6  # PostgreSQL adapter (psycopg3 более надежный)
 
 # Data validation
 pydantic==2.5.3
+
+# Security
+cryptography==44.0.0
 
 # Utils
 python-dotenv==1.0.0

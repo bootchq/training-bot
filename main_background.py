@@ -30,6 +30,7 @@ from src.database.db import db
 from src.database.init_db import init_database
 from src.integrations.ai_agent import ai_consultant
 from src.integrations.garmin_sync import garmin_sync
+from src.utils.alerting import send_alert
 from src.utils.config import Config
 from src.utils.health_check import health_server
 from src.utils.logger import logger
@@ -82,6 +83,7 @@ async def check_and_analyze_trainings():
 
         except Exception as e:
             logger.error(f"❌ Ошибка проверки тренировок для user_id={user.id}: {e}", exc_info=True)
+            send_alert("Garmin sync failed", error=e, context=f"user_id={user.id}")
 
 
 async def analyze_training(user_id: int, telegram_id: int, training):
@@ -168,6 +170,7 @@ async def analyze_training(user_id: int, telegram_id: int, training):
 
     except Exception as e:
         logger.error(f"❌ Ошибка анализа тренировки для user_id={user_id}: {e}", exc_info=True)
+        send_alert("AI analysis failed", error=e, context=f"user_id={user_id}")
 
 
 async def check_missed_trainings():
@@ -409,6 +412,7 @@ def main():
         logger.info("Остановка фоновых задач (Ctrl+C)")
     except Exception as e:
         logger.error(f"Критическая ошибка: {e}", exc_info=True)
+        send_alert("Service 2 CRASHED", error=e)
     finally:
         # Останавливаем health check сервер
         try:
