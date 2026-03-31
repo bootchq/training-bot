@@ -2,32 +2,19 @@
 from datetime import date, timedelta
 from typing import Dict, Any
 
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-
 from ..database.db import db
 from ..ai.recovery_detector import recovery_detector
-from ..utils.config import Config
 from ..utils.logger import logger
 from ..utils import time_utils
+from .groq_client import get_groq_client, MODEL_MAIN
 
 
 class SmartAdvisor:
     """Умный советник: анализирует план vs факт за 3 недели и рекомендует лучшую тренировку"""
 
     def __init__(self):
-        self.api_key = Config.GROQ_API_KEY
-        if self.api_key and OPENAI_AVAILABLE:
-            self.client = OpenAI(
-                api_key=self.api_key,
-                base_url="https://api.groq.com/openai/v1"
-            )
-            self.model = "llama-3.3-70b-versatile"
-        else:
-            self.client = None
+        self.client = get_groq_client()
+        self.model = MODEL_MAIN
 
     def get_smart_recommendation(self, user_id: int) -> Dict[str, Any]:
         """

@@ -1,4 +1,5 @@
 """Интеграция с Garmin Connect"""
+import hashlib
 import shutil
 from datetime import date
 from datetime import timedelta
@@ -22,74 +23,119 @@ class GarminSync:
     """Синхронизация с Garmin Connect"""
 
     def __init__(self):
-        """Инициализация"""
         self.email = Config.GARMIN_EMAIL
         self.password = Config.GARMIN_PASSWORD
         self.client = None
         self.current_user_id = None
 
+    def _get_token_path(self, email: str) -> Path:
+        """
+        Путь к сохранённым OAuth токенам для конкретного email.
+
+        Используется для персистентного хранения garth токенов между
+        перезапусками Railway контейнера. Требует Railway Volume на /data.
+        """
+        email_hash = hashlib.md5(email.lower().encode()).hexdigest()[:12]
+        token_dir = Path(Config.GARTH_HOME) / email_hash
+        token_dir.mkdir(parents=True, exist_ok=True)
+        return token_dir
+
+    def _tokens_exist(self, token_path: Path) -> bool:
+        """Проверить наличие сохранённых токенов"""
+        return (token_path / "oauth1_token.json").exists() or \
+               (token_path / "oauth2_token.json").exists()
+
     def clear_session(self) -> bool:
         """
-        Очистить кешированную сессию Garmin (OAuth tokens)
+        Очистить кешированную сессию Garmin (OAuth tokens).
 
-        Библиотека garminconnect использует garth, который сохраняет
-        OAuth tokens в ~/.garth/. При сбросе пользователя нужно удалить
-        эти файлы, иначе авторизация пройдёт с неправильными credentials.
-
-        Returns:
-            True если успешно или директории нет
+        Удаляет токены как из ~/.garth/ так и из /data/garth_tokens/,
+        чтобы следующий login делал свежую авторизацию.
         """
         try:
+            # Удаляем ~/.garth/ (дефолтная директория garth)
             garth_dir = Path.home() / '.garth'
             if garth_dir.exists():
                 shutil.rmtree(garth_dir)
-                logger.info(f"✅ Удалена директория с OAuth tokens: {garth_dir}")
-            else:
-                logger.debug(f"Директория {garth_dir} не существует, пропуск")
+                logger.info(f"Удалена директория с OAuth tokens: {garth_dir}")
 
-            # Сбрасываем текущий client
+            # Удаляем сохранённые токены для текущего email
+            if self.email:
+                token_path = self._get_token_path(self.email)
+                if token_path.exists():
+                    shutil.rmtree(token_path)
+                    logger.info(f"Удалены персистентные токены: {token_path}")
+
             self.client = None
             self.current_user_id = None
-
             return True
         except Exception as e:
-            logger.error(f"❌ Ошибка при очистке сессии Garmin: {e}")
+            logger.error(f"Ошибка при очистке сессии Garmin: {e}")
             return False
 
     def login(self, email: str = None, password: str = None) -> bool:
         """
-        Авторизация в Garmin Connect
+        Авторизация в Garmin Connect с поддержкой token persistence.
+
+        Алгоритм:
+        1. Если есть сохранённые токены → garth.load() (быстро, без SSO)
+        2. Если нет или протухли → свежий login → сохранить токены
 
         Args:
-            email: Email от Garmin (если None - используется из Config)
-            password: Пароль от Garmin (если None - используется из Config)
+            email: Email от Garmin (если None — из Config)
+            password: Пароль от Garmin (если None — из Config)
 
         Returns:
-            True если успешно, False если ошибка
+            True если авторизация прошла
         """
         email = email or self.email
         password = password or self.password
 
         if not email or not password:
-            logger.error("❌ Не указаны учетные данные Garmin")
+            logger.error("Не указаны учетные данные Garmin")
             return False
 
+        token_path = self._get_token_path(email)
+
+        # Пробуем загрузить сохранённые токены
+        if self._tokens_exist(token_path):
+            try:
+                self.client = Garmin()
+                self.client.login(tokenstore=str(token_path))
+                logger.info(f"Garmin: загружены токены из {token_path}")
+                return True
+            except Exception as e:
+                logger.warning(f"Garmin: токены устарели ({e}), повторная авторизация...")
+                # Удаляем протухшие токены
+                shutil.rmtree(token_path, ignore_errors=True)
+                token_path.mkdir(parents=True, exist_ok=True)
+
+        # Свежая авторизация через SSO
         try:
-            logger.info(f"Авторизация в Garmin Connect ({email})...")
+            logger.info(f"Garmin: авторизация через SSO ({email})...")
             self.client = Garmin(email, password)
             self.client.login()
-            logger.info("✅ Авторизация успешна")
+
+            # Сохраняем токены для последующих запусков
+            try:
+                self.client.garth.dump(str(token_path))
+                logger.info(f"Garmin: токены сохранены в {token_path}")
+            except Exception as e:
+                logger.warning(f"Garmin: не удалось сохранить токены: {e}")
+
+            logger.info("Garmin: авторизация успешна")
             return True
+
         except GarminConnectAuthenticationError as e:
-            logger.error(f"❌ Ошибка авторизации Garmin: {e}")
+            logger.error(f"Ошибка авторизации Garmin (неверный логин/пароль): {e}")
             return False
         except Exception as e:
-            logger.error(f"❌ Ошибка подключения к Garmin: {e}")
+            logger.error(f"Ошибка подключения к Garmin: {e}")
             return False
 
     def get_activities_for_date(self, target_date: date) -> List[Dict[str, Any]]:
         """
-        Получить активности за день с детальными данными
+        Получить активности за день с детальными данными.
 
         Args:
             target_date: Дата
@@ -104,38 +150,35 @@ class GarminSync:
         try:
             date_str = target_date.isoformat()
 
-            # Получаем последние 100 активностей (покрывает ~3 месяца при тренировках каждый день)
+            # Последние 100 активностей (~3 месяца при ежедневных тренировках)
             all_activities = self.client.get_activities(0, 100)
 
             if not all_activities or not isinstance(all_activities, list):
                 return []
 
-            # Фильтруем по дате (startTimeLocal формат: "2026-01-30T07:00:00.0")
+            # Фильтруем по дате (startTimeLocal: "2026-01-30T07:00:00.0")
             activities = [
                 act for act in all_activities
                 if act.get('startTimeLocal', '').startswith(date_str)
             ]
 
-            # Фильтруем только беговые и кардио
-            running_types = ['running', 'trail_running', 'treadmill_running']
-            cardio_types = ['cardio_training']
-            allowed_types = running_types + cardio_types
+            # Только беговые и кардио
+            allowed_types = [
+                'running', 'trail_running', 'treadmill_running', 'cardio_training'
+            ]
 
             filtered = []
             for activity in activities:
                 activity_type = activity.get('activityType', {}).get('typeKey', '').lower()
                 if activity_type in allowed_types:
-                    # Получаем детальные данные (включая зоны пульса)
                     activity_id = activity.get('activityId')
                     if activity_id:
                         try:
-                            # Получаем splits (содержат зоны)
                             splits = self.client.get_activity_splits(activity_id)
                             if splits:
                                 activity['splits'] = splits
                         except Exception as e:
                             logger.debug(f"Не удалось получить splits для {activity_id}: {e}")
-
                     filtered.append(activity)
 
             logger.info(f"Найдено {len(filtered)} тренировок за {target_date}")
@@ -143,17 +186,17 @@ class GarminSync:
 
         except Exception as e:
             logger.error(f"Ошибка получения активностей за {target_date}: {e}")
+            # При ошибке авторизации — сбрасываем client для повторного login
+            if "401" in str(e) or "auth" in str(e).lower():
+                self.client = None
             return []
 
     def parse_hr_zones(self, activity: Dict[str, Any]) -> Dict[str, int]:
         """
-        Парсинг зон пульса из активности
-
-        Args:
-            activity: Данные активности от Garmin
+        Парсинг зон пульса из активности.
 
         Returns:
-            Словарь с временем в зонах (в секундах)
+            Словарь с временем в зонах (в секундах) или None
         """
         zones = {}
 
@@ -187,10 +230,7 @@ class GarminSync:
 
     def parse_activity(self, activity: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Парсинг активности в формат для БД
-
-        Args:
-            activity: Данные активности от Garmin
+        Парсинг активности в формат для БД.
 
         Returns:
             Словарь с данными для сохранения
@@ -198,15 +238,13 @@ class GarminSync:
         distance_m = activity.get('distance', 0)
         duration_sec = activity.get('duration', 0)
 
-        # Средний темп (сек/км)
         avg_pace = None
         if distance_m > 0 and duration_sec > 0:
-            pace_sec_per_km = (duration_sec / (distance_m / 1000))
+            pace_sec_per_km = duration_sec / (distance_m / 1000)
             pace_min = int(pace_sec_per_km // 60)
             pace_sec = int(pace_sec_per_km % 60)
             avg_pace = f"{pace_min}:{pace_sec:02d}"
 
-        # Парсинг зон пульса
         hr_zones = self.parse_hr_zones(activity)
 
         return {
@@ -222,11 +260,7 @@ class GarminSync:
 
     def get_lactate_threshold(self) -> Optional[int]:
         """
-        Получить LTHR (Lactate Threshold Heart Rate) из Garmin
-
-        Пробует несколько источников:
-        1. get_lactate_threshold() — прямой запрос
-        2. get_max_metrics() — альтернативный endpoint
+        Получить LTHR (Lactate Threshold Heart Rate) из Garmin.
 
         Returns:
             LTHR в уд/мин или None
@@ -236,16 +270,13 @@ class GarminSync:
                 return None
 
         try:
-            # Источник 1: Прямой запрос LTHR
             lt_data = self.client.get_lactate_threshold(latest=True)
             logger.info(f"Ответ get_lactate_threshold: {lt_data}")
 
-            # Обработка разных форматов ответа (может быть list или dict)
             if isinstance(lt_data, list) and lt_data:
                 lt_data = lt_data[0]
 
             if lt_data and isinstance(lt_data, dict):
-                # Проверяем разные возможные ключи
                 lthr = (lt_data.get('lactateThresholdHeartRate') or
                         lt_data.get('lactateThresholdHR') or
                         lt_data.get('thresholdHeartRate') or
@@ -254,22 +285,16 @@ class GarminSync:
                     logger.info(f"LTHR из Garmin: {lthr} уд/мин")
                     return int(lthr)
 
-            # Источник 2: max_metrics (альтернатива)
-            logger.info("LTHR не найден в get_lactate_threshold, пробую get_max_metrics...")
             try:
                 max_metrics = self.client.get_max_metrics(date.today().isoformat())
-                logger.info(f"Ответ get_max_metrics: {max_metrics}")
-
                 if max_metrics and isinstance(max_metrics, dict):
-                    # Проверяем есть ли threshold данные
                     threshold = max_metrics.get('lactateThresholdHeartRate')
                     if threshold:
                         logger.info(f"LTHR из max_metrics: {threshold} уд/мин")
                         return int(threshold)
             except Exception as e:
-                logger.info(f"get_max_metrics не доступен: {e}")
+                logger.info(f"get_max_metrics недоступен: {e}")
 
-            logger.info("LTHR не найден в данных Garmin")
             return None
 
         except Exception as e:
@@ -278,7 +303,7 @@ class GarminSync:
 
     def get_personal_records(self) -> Dict[str, Dict[str, Any]]:
         """
-        Получить персональные рекорды из Garmin
+        Получить персональные рекорды из Garmin.
 
         Returns:
             Словарь рекордов: {"5k": {"time_seconds": 1500, "date": "2024-01-15"}, ...}
@@ -288,12 +313,10 @@ class GarminSync:
                 return {}
 
         try:
-            # Получаем персональные рекорды
             pr_data = self.client.get_personal_record()
 
             records = {}
             if pr_data and isinstance(pr_data, list):
-                # Маппинг типов рекордов Garmin на наши
                 distance_mapping = {
                     'PR_5K': '5k',
                     'PR_10K': '10k',
@@ -307,11 +330,8 @@ class GarminSync:
 
                 for record in pr_data:
                     record_type = record.get('prTypePk') or record.get('typeKey', '')
-
-                    # Проверяем оба варианта маппинга
                     our_type = distance_mapping.get(record_type)
                     if not our_type:
-                        # Пробуем найти по частичному совпадению
                         for garmin_key, our_key in distance_mapping.items():
                             if garmin_key in record_type.upper():
                                 our_type = our_key
@@ -320,13 +340,9 @@ class GarminSync:
                     if our_type:
                         time_seconds = record.get('elapsedTime') or record.get('value')
                         if time_seconds:
-                            # Преобразуем если нужно (иногда приходит в мс)
-                            if time_seconds > 86400:  # больше суток = миллисекунды
+                            if time_seconds > 86400:  # миллисекунды → секунды
                                 time_seconds = time_seconds / 1000
-
                             record_date = record.get('prDate') or record.get('activityStartDateLocal')
-
-                            # Сохраняем лучший результат (меньшее время)
                             if our_type not in records or time_seconds < records[our_type]['time_seconds']:
                                 records[our_type] = {
                                     'time_seconds': int(time_seconds),
@@ -352,24 +368,18 @@ class GarminSync:
 
     def sync_last_60_days(self, user_id: int) -> Tuple[int, Optional[int], Dict[str, Dict]]:
         """
-        Синхронизация тренировок за последние 60 дней + LTHR + Personal Records
-
-        Args:
-            user_id: ID пользователя
+        Синхронизация тренировок за последние 60 дней + LTHR + Personal Records.
 
         Returns:
             Tuple (количество тренировок, LTHR, personal_records)
         """
         logger.info(f"Начинаю синхронизацию 60 дней для user_id={user_id}")
 
-        # Получаем LTHR из Garmin (тест лактатного порога)
         lthr = self.get_lactate_threshold()
         lthr_source = "garmin" if lthr else None
 
-        # Получаем персональные рекорды
         personal_records = self.get_personal_records()
 
-        # Синхронизируем тренировки за 60 дней
         total_saved = 0
         today = date.today()
 
@@ -378,7 +388,6 @@ class GarminSync:
             saved = self.sync_date(user_id, target_date)
             total_saved += saved
 
-        # Если LTHR не получен из Garmin — рассчитываем по max HR из тренировок
         if not lthr:
             lthr = self._estimate_lthr_from_trainings(user_id)
             lthr_source = "estimated" if lthr else None
@@ -391,55 +400,31 @@ class GarminSync:
 
     def _estimate_lthr_from_trainings(self, user_id: int) -> Optional[int]:
         """
-        Оценка LTHR по max HR из тренировок (fallback если Garmin не отдаёт LTHR)
+        Оценка LTHR по max HR из тренировок (fallback).
 
         Формула: LTHR ≈ 85% от max HR (Joe Friel)
-
-        Args:
-            user_id: ID пользователя
-
-        Returns:
-            Оценочный LTHR или None
         """
-        from ..database.db import db
-
         trainings = db.get_user_trainings(user_id, limit=60)
         if not trainings:
             return None
 
-        # Находим максимальный пульс из всех тренировок
         max_hrs = [t.max_hr for t in trainings if t.max_hr and t.max_hr > 100]
         if not max_hrs:
             return None
 
         max_hr = max(max_hrs)
-
-        # LTHR ≈ 85% от max HR (консервативная оценка по Joe Friel)
         lthr = int(max_hr * 0.85)
-
         logger.info(f"LTHR рассчитан по max HR: {lthr} уд/мин (max HR={max_hr})")
         return lthr
 
     def sync_today(self, user_id: int) -> int:
-        """
-        Синхронизация тренировок за сегодня
-
-        Args:
-            user_id: ID пользователя
-
-        Returns:
-            Количество сохранённых тренировок
-        """
+        """Синхронизация тренировок за сегодня"""
         today = date.today()
         return self.sync_date(user_id, today)
 
     def sync_date(self, user_id: int, target_date: date) -> int:
         """
-        Синхронизация тренировок за конкретную дату
-
-        Args:
-            user_id: ID пользователя
-            target_date: Дата для синхронизации
+        Синхронизация тренировок за конкретную дату.
 
         Returns:
             Количество сохранённых тренировок
@@ -447,7 +432,6 @@ class GarminSync:
         activities = self.get_activities_for_date(target_date)
 
         if not activities:
-            logger.info(f"Нет тренировок за {target_date}")
             return 0
 
         saved_count = 0
@@ -456,7 +440,6 @@ class GarminSync:
             for activity in activities:
                 parsed = self.parse_activity(activity)
 
-                # Проверка, не сохранена ли уже
                 existing = session.query(Training).filter_by(
                     user_id=user_id,
                     date=target_date,
@@ -482,16 +465,11 @@ class GarminSync:
 
     def sync_date_for_user(self, user_id: int, target_date: date) -> int:
         """
-        Синхронизация тренировок для конкретного пользователя
-
-        Args:
-            user_id: ID пользователя (внутренний)
-            target_date: Дата для синхронизации
+        Синхронизация тренировок для конкретного пользователя с его credentials.
 
         Returns:
             Количество сохранённых тренировок
         """
-        # Получаем учетные данные пользователя
         credentials = db.get_user_garmin_credentials(user_id)
 
         if not credentials:
@@ -500,12 +478,10 @@ class GarminSync:
 
         email, password = credentials
 
-        # Авторизуемся с учетными данными пользователя
         if not self.login(email, password):
             logger.error(f"Не удалось авторизоваться в Garmin для пользователя {user_id}")
             return 0
 
-        # Синхронизируем
         return self.sync_date(user_id, target_date)
 
 

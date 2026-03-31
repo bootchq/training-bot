@@ -62,6 +62,17 @@ class Config:
     # Расписание
     SYNC_TIME = "19:00"  # Время ежедневной синхронизации Garmin
 
+    # Garmin token persistence
+    # На Railway: /data/garth_tokens/ — требует Volume на /data
+    # Локально: {DATA_DIR}/garth_tokens/
+    GARTH_HOME = os.getenv("GARTH_HOME", str(DATA_DIR / "garth_tokens"))
+
+    # Webhook (для Railway деплоя)
+    # Если задан WEBHOOK_URL — бот использует webhook вместо polling
+    # Пример: https://training-bot-production.up.railway.app
+    WEBHOOK_URL = os.getenv("WEBHOOK_URL")
+    WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET")
+
     @classmethod
     def validate(cls):
         """Проверка обязательных переменных"""

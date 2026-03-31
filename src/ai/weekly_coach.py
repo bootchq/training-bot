@@ -2,35 +2,22 @@
 from datetime import date, timedelta
 from typing import Optional, Dict, Any
 
-try:
-    from openai import OpenAI
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-
 from ..database.db import db
-from ..utils.config import Config
 from ..utils.logger import logger
 from ..utils import time_utils
+from .groq_client import get_groq_client, MODEL_MAIN
 
 
 class WeeklyCoach:
     """AI-коуч для еженедельного анализа и советов"""
 
     def __init__(self):
-        """Инициализация"""
-        self.api_key = Config.GROQ_API_KEY
-
-        if self.api_key and OPENAI_AVAILABLE:
-            self.client = OpenAI(
-                api_key=self.api_key,
-                base_url="https://api.groq.com/openai/v1"
-            )
-            self.model = "llama-3.3-70b-versatile"
+        self.client = get_groq_client()
+        self.model = MODEL_MAIN
+        if self.client:
             logger.info("WeeklyCoach инициализирован (Groq)")
         else:
-            self.client = None
-            logger.warning("WeeklyCoach недоступен: нет Groq API ключа")
+            logger.warning("WeeklyCoach: Groq недоступен")
 
     def get_weekly_insights(
         self,

@@ -87,6 +87,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
         self.app.add_handler(CommandHandler("weekly", self.weekly_command))
         self.app.add_handler(CommandHandler("recovery", self.recovery_command))
         self.app.add_handler(CommandHandler("next", self.next_workout))
+        self.app.add_handler(CommandHandler("workload", self.workload_command))
 
         # ВАЖНО: Standalone CallbackQueryHandlers ДО ConversationHandlers
         # чтобы они не были заблокированы
@@ -207,6 +208,7 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
 /sync — Синхронизация с Garmin (вручную)
 /plan — План тренировок на текущую неделю
 /state — Текущее состояние (анализ за 4 недели)
+/workload — Нагрузка: ACWR, TRIMP, риск травмы
 /stats — Статистика за неделю
 /stats month — Статистика за месяц
 /calendar — Скачать план в ICS для календаря
@@ -254,24 +256,18 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
         user = db.get_or_create_user(telegram_id)
 
         try:
-            # Создаем адаптер и получаем состояние
             adapter = PlanAdapter(user.id)
             state = adapter.get_runner_state()
-
-            # Получаем простой статус для beginner
             simple = state.get_simple_status()
 
-            # Форматируем сообщение
             message = f"{simple['icon']} *{simple['message']}*\n\n"
             message += f"_{simple['detail']}_\n\n"
             message += "━━━━━━━━━━━━━━━━━━━━\n\n"
 
-            # Краткая сводка за 4 недели
             message += "📊 *Анализ за 4 недели:*\n\n"
             message += f"📈 Объём: {state.volume.avg_weekly_km:.1f} км/неделя\n"
             message += f"⚡ Интенсив: {state.intensity.intense_minutes_week} мин/неделя ({state.intensity.actual_ratio*100:.0f}%)\n"
 
-            # Easy HR тренд (если есть)
             if state.response.easy_hr_baseline and state.response.easy_hr_current:
                 hr_trend_icon = "🟢" if state.response.easy_hr_trend == "stable" else "🔴"
                 message += f"{hr_trend_icon} Easy HR: {state.response.easy_hr_current} bpm"
@@ -280,9 +276,22 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
                     message += f" ({delta_sign}{state.response.easy_hr_delta_pct:.1f}%)"
                 message += "\n"
 
-            # Wellness (если есть)
             if state.response.wellness_avg:
                 message += f"💪 Самочувствие: {state.response.wellness_avg:.1f}/10\n"
+
+            # ACWR блок — добавляем к /state
+            try:
+                from ..core.workload_monitor import get_workload_status
+                ws = get_workload_status(user.id)
+                risk_icons = {"safe": "🟢", "caution": "🟡", "danger": "🔴"}
+                risk_icon = risk_icons.get(ws.risk_level, "⚪")
+                message += f"\n⚖️ *Нагрузка (ACWR):*\n"
+                message += f"{risk_icon} ACWR {ws.acwr:.2f}  "
+                message += f"(острая {ws.acute_load:.0f} / хрон. {ws.chronic_load:.0f} AU)\n"
+                if ws.risk_level != "safe":
+                    message += f"_{ws.recommendation}_\n"
+            except Exception as e:
+                logger.debug(f"ACWR в /state недоступен: {e}")
 
             message += "\n"
             message += f"💡 *Рекомендация:*\n_{state.recommendation.reason}_"
@@ -295,6 +304,24 @@ class TrainingBot(OnboardingMixin, AIChatMixin, SyncMixin):
                 "Не удалось получить состояние.\n\n"
                 "Возможно, недостаточно данных за последние 4 недели.\n"
                 "Используй /sync для синхронизации тренировок."
+            )
+
+    async def workload_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Команда /workload — ACWR, TRIMP, Training Monotony, риск травмы"""
+        telegram_id = update.effective_user.id
+        user = db.get_or_create_user(telegram_id)
+
+        try:
+            from ..core.workload_monitor import get_workload_status, format_workload_message
+            status = get_workload_status(user.id)
+            text = format_workload_message(status)
+            await update.message.reply_text(text, parse_mode='Markdown')
+        except Exception as e:
+            logger.error(f"Ошибка /workload для {telegram_id}: {e}", exc_info=True)
+            await update.message.reply_text(
+                "Не удалось рассчитать нагрузку.\n\n"
+                "Нужно минимум 4 недели данных Garmin.\n"
+                "Используй /sync для синхронизации."
             )
 
     async def zones_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
