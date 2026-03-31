@@ -63,9 +63,10 @@ class Config:
     SYNC_TIME = "19:00"  # Время ежедневной синхронизации Garmin
 
     # Garmin token persistence
-    # На Railway: /data/garth_tokens/ — требует Volume на /data
-    # Локально: {DATA_DIR}/garth_tokens/
-    GARTH_HOME = os.getenv("GARTH_HOME", str(DATA_DIR / "garth_tokens"))
+    # Автодетект: если Railway Volume смонтирован на /data — используем его.
+    # Иначе — локальная папка data/garth_tokens/ (не персистентна на Railway без Volume).
+    _garth_default = "/data/garth_tokens" if os.path.isdir("/data") else str(DATA_DIR / "garth_tokens")
+    GARTH_HOME = os.getenv("GARTH_HOME", _garth_default)
 
     # Webhook (для Railway деплоя)
     # Если задан WEBHOOK_URL — бот использует webhook вместо polling
